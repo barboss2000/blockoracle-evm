@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8" />
+<title>BlockOracle EVM</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.6.2/dist/ethers.min.js"></script>
+
+<style>
+body {
+  margin:0;
+  font-family:sans-serif;
+  background:#0f172a;
+  color:white;
+  text-align:center;
+}
+
+.topbar {
+  display:flex;
+  justify-content:space-between;
+  padding:15px 30px;
+  background:#111827;
+}
+
+button {
+  padding:8px 14px;
+  border-radius:8px;
+  border:none;
+  cursor:pointer;
+  font-weight:bold;
+}
+
+.wallet-btn {
+  background:#f7931a;
+  color:black;
+}
+
+.card {
+  background:#1f2937;
+  padding:25px;
+  border-radius:12px;
+  margin:40px auto;
+  max-width:600px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="topbar">
+  <div>BlockOracle — Robinhood EVM</div>
+  <button class="wallet-btn" onclick="connectWallet()" id="walletBtn">
+    Connect Wallet
+  </button>
+</div>
+
+<div class="card">
+  <h2>Robinhood Chain Testnet</h2>
+  <p>Address: <span id="address">Not connected</span></p>
+  <p>Network: <span id="network">Unknown</span></p>
+</div>
+
+<script>
+
+let provider;
+let signer;
+let userAddress;
+
+/* ⚠️ ВСТАВИМ Chain ID позже */
+const RH_CHAIN_ID = "0x????";
+
+const RH_NETWORK = {
+  chainId: RH_CHAIN_ID,
+  chainName: "Robinhood Chain Testnet",
+  rpcUrls: ["https://rpc.testnet.chain.robinhood.com"],
+  nativeCurrency: {
+    name: "Robinhood",
+    symbol: "RH",
+    decimals: 18
+  }
+};
+
+async function connectWallet() {
+
+  if (!window.ethereum) {
+    alert("Install MetaMask");
+    return;
+  }
+
+  provider = new ethers.BrowserProvider(window.ethereum);
+  await provider.send("eth_requestAccounts", []);
+
+  signer = await provider.getSigner();
+  userAddress = await signer.getAddress();
+
+  document.getElementById("address").innerText = userAddress;
+
+  await switchNetwork();
+}
+
+async function switchNetwork() {
+  try {
+    await window.ethereum.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: RH_CHAIN_ID }]
+    });
+
+    document.getElementById("network").innerText = "Robinhood Testnet";
+
+  } catch (error) {
+
+    try {
+      await window.ethereum.request({
+        method: "wallet_addEthereumChain",
+        params: [RH_NETWORK]
+      });
+
+      document.getElementById("network").innerText = "Robinhood Testnet";
+
+    } catch (addError) {
+      alert("Failed to add network");
+    }
+
+  }
+}
+
+</script>
+
+</body>
+</html>
