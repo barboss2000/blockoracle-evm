@@ -57,29 +57,40 @@ button{
 </div>
 
 <script>
-
 async function connectWallet() {
-  if (typeof window.ethereum === "undefined") {
+
+  if (!window.ethereum) {
     alert("MetaMask not detected");
     return;
   }
 
   try {
-    await window.ethereum.request({ method: "eth_requestAccounts" });
-    const provider = new ethers.BrowserProvider(window.ethereum);
-    const signer = await provider.getSigner();
-    const address = await signer.getAddress();
+
+    // 1. Запросить доступ к аккаунтам
+    const accounts = await window.ethereum.request({
+      method: "eth_requestAccounts"
+    });
+
+    if (!accounts || accounts.length === 0) {
+      throw new Error("No accounts returned");
+    }
+
+    const address = accounts[0];
+
+    // 2. Получить текущую сеть
+    const chainId = await window.ethereum.request({
+      method: "eth_chainId"
+    });
 
     document.getElementById("address").innerText = address;
-    document.getElementById("network").innerText = "Connected";
+    document.getElementById("network").innerText = "Chain ID: " + chainId;
     document.getElementById("walletBtn").innerText = "Connected ✓";
 
-  } catch (err) {
-    console.log(err);
-    alert("Connection failed");
+  } catch (error) {
+    console.log("Wallet error:", error);
+    alert("Connection failed: " + error.message);
   }
 }
-
 </script>
 
 </body>
