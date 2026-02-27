@@ -57,6 +57,22 @@ button{
 </div>
 
 <script>
+<script>
+
+const RH_CHAIN_ID = "0xB636";
+
+const RH_NETWORK = {
+  chainId: RH_CHAIN_ID,
+  chainName: "Robinhood Chain Testnet",
+  rpcUrls: ["https://rpc.testnet.chain.robinhood.com"],
+  nativeCurrency: {
+    name: "Ethereum",
+    symbol: "ETH",
+    decimals: 18
+  },
+  blockExplorerUrls: ["https://explorer.testnet.chain.robinhood.com"]
+};
+
 async function connectWallet() {
 
   if (!window.ethereum) {
@@ -66,24 +82,37 @@ async function connectWallet() {
 
   try {
 
-    // 1. Запросить доступ к аккаунтам
     const accounts = await window.ethereum.request({
       method: "eth_requestAccounts"
     });
 
-    if (!accounts || accounts.length === 0) {
-      throw new Error("No accounts returned");
-    }
-
     const address = accounts[0];
 
-    // 2. Получить текущую сеть
-    const chainId = await window.ethereum.request({
+    // Проверяем текущую сеть
+    const currentChainId = await window.ethereum.request({
       method: "eth_chainId"
     });
 
+    // Если не Robinhood — переключаем
+    if (currentChainId !== RH_CHAIN_ID) {
+      try {
+        await window.ethereum.request({
+          method: "wallet_switchEthereumChain",
+          params: [{ chainId: RH_CHAIN_ID }]
+        });
+      } catch (switchError) {
+
+        // Если сеть не добавлена — добавляем
+        await window.ethereum.request({
+          method: "wallet_addEthereumChain",
+          params: [RH_NETWORK]
+        });
+
+      }
+    }
+
     document.getElementById("address").innerText = address;
-    document.getElementById("network").innerText = "Chain ID: " + chainId;
+    document.getElementById("network").innerText = "Robinhood Testnet (46630)";
     document.getElementById("walletBtn").innerText = "Connected ✓";
 
   } catch (error) {
@@ -91,6 +120,8 @@ async function connectWallet() {
     alert("Connection failed: " + error.message);
   }
 }
+
+</script>
 </script>
 
 </body>
