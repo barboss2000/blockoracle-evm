@@ -115,17 +115,25 @@ let timerInterval;
 async function connect() {
   try {
     if (!window.ethereum) {
-      alert("Install MetaMask");
+      alert("MetaMask not installed");
       return;
     }
 
-    await window.ethereum.request({ method: "eth_requestAccounts" });
+    console.log("Requesting accounts...");
+
+    const accounts = await window.ethereum.request({
+      method: "eth_requestAccounts"
+    });
+
+    console.log("Accounts:", accounts);
 
     provider = new ethers.BrowserProvider(window.ethereum);
-    const network = await provider.getNetwork();
 
-    if (Number(network.chainId) !== expectedChainId) {
-      alert("Switch MetaMask to Robinhood Testnet (46630)");
+    const network = await provider.getNetwork();
+    console.log("Connected chain:", network.chainId);
+
+    if (Number(network.chainId) !== 46630) {
+      alert("Wrong network. Switch to Robinhood Testnet (46630)");
       return;
     }
 
@@ -136,16 +144,13 @@ async function connect() {
     document.getElementById("wallet").innerText = address;
 
     loadData();
-
-    if (timerInterval) clearInterval(timerInterval);
-    timerInterval = setInterval(loadData, 1000);
+    setInterval(loadData, 1000);
 
   } catch (err) {
-    console.error(err);
-    alert("Connection failed");
+    console.error("FULL ERROR:", err);
+    alert("Connection failed. Check console (F12).");
   }
 }
-
 // ===== LOAD DATA =====
 async function loadData() {
   if (!contract) return;
