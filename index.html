@@ -1,42 +1,70 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="UTF-8">
-<title>BlockOracle EVM</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<script src="https://cdn.jsdelivr.net/npm/ethers@6.6.2/dist/ethers.min.js"></script>
+<meta charset="UTF-8" />
+<title>BlockOracle — Robinhood EVM</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.10.0/dist/ethers.min.js"></script>
 
 <style>
-body{
+body {
   margin:0;
-  font-family:sans-serif;
-  background:#0f172a;
+  font-family:-apple-system,BlinkMacSystemFont,sans-serif;
+  background:linear-gradient(135deg,#0f172a,#111827);
   color:white;
-  text-align:center;
 }
-.topbar{
+
+.topbar {
   display:flex;
   justify-content:space-between;
+  align-items:center;
   padding:15px 30px;
-  background:#111827;
+  background:#0b1220;
+  border-bottom:1px solid rgba(255,255,255,0.05);
 }
-button{
-  padding:8px 14px;
-  border-radius:8px;
-  border:none;
-  cursor:pointer;
+
+.brand {
   font-weight:bold;
 }
-.wallet-btn{
+
+.wallet-btn {
   background:#f7931a;
   color:black;
+  padding:8px 16px;
+  border-radius:8px;
+  cursor:pointer;
+  font-weight:bold;
+  border:none;
 }
-.card{
+
+.wallet-btn:hover {
+  opacity:0.9;
+}
+
+.container {
+  max-width:800px;
+  margin:80px auto;
+  padding:30px;
   background:#1f2937;
-  padding:25px;
-  border-radius:12px;
-  margin:40px auto;
-  max-width:600px;
+  border-radius:14px;
+  text-align:center;
+}
+
+.info {
+  margin:15px 0;
+  opacity:0.9;
+}
+
+.balance {
+  font-size:20px;
+  margin-top:20px;
+}
+
+.status {
+  margin-top:20px;
+  font-size:14px;
+  opacity:0.7;
 }
 </style>
 </head>
@@ -44,19 +72,22 @@ button{
 <body>
 
 <div class="topbar">
-  <div>BlockOracle — Robinhood EVM</div>
+  <div class="brand">BlockOracle — Robinhood EVM</div>
   <button class="wallet-btn" onclick="connectWallet()" id="walletBtn">
     Connect Wallet
   </button>
 </div>
 
-<div class="card">
+<div class="container">
   <h2>Robinhood Chain Testnet</h2>
-  <p>Address: <span id="address">Not connected</span></p>
-  <p>Network: <span id="network">Unknown</span></p>
+
+  <div class="info">Address: <span id="address">Not connected</span></div>
+  <div class="info">Network: <span id="network">Unknown</span></div>
+  <div class="balance">Balance: <span id="balance">0</span> ETH</div>
+
+  <div class="status" id="status">Waiting for connection...</div>
 </div>
 
-<script>
 <script>
 
 const RH_CHAIN_ID = "0xB636";
@@ -73,6 +104,9 @@ const RH_NETWORK = {
   blockExplorerUrls: ["https://explorer.testnet.chain.robinhood.com"]
 };
 
+let provider;
+let signer;
+
 async function connectWallet() {
 
   if (!window.ethereum) {
@@ -82,27 +116,26 @@ async function connectWallet() {
 
   try {
 
-    const accounts = await window.ethereum.request({
-      method: "eth_requestAccounts"
-    });
+    provider = new ethers.BrowserProvider(window.ethereum);
 
-    const address = accounts[0];
+    // Запрос аккаунта
+    await window.ethereum.request({ method: "eth_requestAccounts" });
 
-    // Проверяем текущую сеть
+    // Проверка сети
     const currentChainId = await window.ethereum.request({
       method: "eth_chainId"
     });
 
-    // Если не Robinhood — переключаем
     if (currentChainId !== RH_CHAIN_ID) {
+
       try {
         await window.ethereum.request({
           method: "wallet_switchEthereumChain",
           params: [{ chainId: RH_CHAIN_ID }]
         });
+
       } catch (switchError) {
 
-        // Если сеть не добавлена — добавляем
         await window.ethereum.request({
           method: "wallet_addEthereumChain",
           params: [RH_NETWORK]
@@ -111,17 +144,37 @@ async function connectWallet() {
       }
     }
 
+    signer = await provider.getSigner();
+    const address = await signer.getAddress();
+    const balance = await provider.getBalance(address);
+
     document.getElementById("address").innerText = address;
     document.getElementById("network").innerText = "Robinhood Testnet (46630)";
+    document.getElementById("balance").innerText =
+      ethers.formatEther(balance);
+
     document.getElementById("walletBtn").innerText = "Connected ✓";
+    document.getElementById("status").innerText = "Wallet connected successfully.";
 
   } catch (error) {
-    console.log("Wallet error:", error);
-    alert("Connection failed: " + error.message);
+    console.log(error);
+    document.getElementById("status").innerText = "Connection failed.";
   }
 }
 
-</script>
+/* Авто-обновление при смене сети */
+if (window.ethereum) {
+
+  window.ethereum.on("chainChanged", () => {
+    window.location.reload();
+  });
+
+  window.ethereum.on("accountsChanged", () => {
+    window.location.reload();
+  });
+
+}
+
 </script>
 
 </body>
