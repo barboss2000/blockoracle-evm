@@ -1,142 +1,154 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="UTF-8">
-<title>BlockOracle — Robinhood EVM</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <title>Prediction Market — Robinhood EVM</title>
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.10.0/dist/ethers.min.js"></script>
+  <style>
+    body {
+      background: #0b1220;
+      color: white;
+      font-family: Arial;
+      text-align: center;
+      padding: 40px;
+    }
 
-<style>
-body {
-  margin:0;
-  font-family:sans-serif;
-  background:linear-gradient(135deg,#0f172a,#111827);
-  color:white;
-}
+    .card {
+      background: #1b2438;
+      padding: 30px;
+      border-radius: 15px;
+      max-width: 600px;
+      margin: auto;
+    }
 
-.topbar {
-  display:flex;
-  justify-content:space-between;
-  padding:15px 30px;
-  background:#0b1220;
-}
+    button {
+      padding: 12px 20px;
+      margin: 10px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      font-weight: bold;
+    }
 
-.wallet-btn {
-  background:#f7931a;
-  color:black;
-  padding:8px 16px;
-  border-radius:8px;
-  cursor:pointer;
-  font-weight:bold;
-  border:none;
-}
+    .up { background: #16c784; color: black; }
+    .down { background: #ea3943; color: white; }
+    .claim { background: #f0b90b; }
+    .settle { background: #5b6cff; }
 
-.container {
-  max-width:700px;
-  margin:80px auto;
-  padding:30px;
-  background:#1f2937;
-  border-radius:14px;
-  text-align:center;
-}
-
-.info {
-  margin:12px 0;
-}
-</style>
+    input {
+      padding: 10px;
+      width: 100px;
+      border-radius: 5px;
+      border: none;
+      margin: 10px;
+    }
+  </style>
 </head>
-
 <body>
 
-<div class="topbar">
-  <div>BlockOracle — Robinhood EVM</div>
-  <button class="wallet-btn" onclick="connectWallet()" id="walletBtn">
-    Connect Wallet
-  </button>
-</div>
+<h2>Prediction Market — Robinhood Testnet</h2>
 
-<div class="container">
-  <h2>Robinhood Chain Testnet</h2>
-  <div class="info">Address: <span id="address">Not connected</span></div>
-  <div class="info">Network: <span id="network">Unknown</span></div>
-  <div class="info">Balance: <span id="balance">0</span> ETH</div>
-  <div class="info" id="status"></div>
+<div class="card">
+  <p><b>Wallet:</b> <span id="wallet">Not connected</span></p>
+  <p><b>Round:</b> <span id="round">-</span></p>
+  <p><b>UP Pool:</b> <span id="upPool">-</span> ETH</p>
+  <p><b>DOWN Pool:</b> <span id="downPool">-</span> ETH</p>
+  <p><b>Time left:</b> <span id="timer">-</span></p>
+
+  <input type="number" id="amount" placeholder="ETH" step="0.01" />
+
+  <br>
+
+  <button class="up" onclick="betUp()">Bet UP</button>
+  <button class="down" onclick="betDown()">Bet DOWN</button>
+
+  <br>
+
+  <button class="claim" onclick="claim()">Claim</button>
+  <button class="settle" onclick="settle(true)">Settle UP</button>
+  <button class="settle" onclick="settle(false)">Settle DOWN</button>
+
+  <br><br>
+
+  <button onclick="connect()">Connect Wallet</button>
 </div>
 
 <script>
 
-const RH_CHAIN_ID = "0xB626";
+const contractAddress = "0xeE53E37971040f9bb1cA74f9e57bA08B7ed0128c";
 
-const RH_NETWORK = {
-  chainId: RH_CHAIN_ID,
-  chainName: "Robinhood Chain Testnet",
-  rpcUrls: ["https://rpc.testnet.chain.robinhood.com"],
-  nativeCurrency: {
-    name: "Ethereum",
-    symbol: "ETH",
-    decimals: 18
-  },
-  blockExplorerUrls: ["https://explorer.testnet.chain.robinhood.com"]
-};
+const abi = YOUR_ABI_HERE; // <-- Вставь сюда ABI
 
-async function connectWallet() {
+let provider;
+let signer;
+let contract;
 
+async function connect() {
   if (!window.ethereum) {
-    alert("MetaMask not detected");
+    alert("Install MetaMask");
     return;
   }
 
-  try {
+  await ethereum.request({ method: "eth_requestAccounts" });
 
-    // 1. Запрос аккаунта
-    const accounts = await window.ethereum.request({
-      method: "eth_requestAccounts"
-    });
+  provider = new ethers.BrowserProvider(window.ethereum);
+  signer = await provider.getSigner();
+  contract = new ethers.Contract(contractAddress, abi, signer);
 
-    const address = accounts[0];
+  document.getElementById("wallet").innerText = await signer.getAddress();
 
-    // 2. Проверка сети
-    let chainId = await window.ethereum.request({
-      method: "eth_chainId"
-    });
+  loadData();
+  setInterval(loadData, 5000);
+}
 
-    if (chainId !== RH_CHAIN_ID) {
+async function loadData() {
+  const roundId = await contract.currentRound();
+  document.getElementById("round").innerText = roundId;
 
-      try {
-        await window.ethereum.request({
-          method: "wallet_switchEthereumChain",
-          params: [{ chainId: RH_CHAIN_ID }]
-        });
+  const round = await contract.rounds(roundId);
 
-      } catch (err) {
+  document.getElementById("upPool").innerText =
+    ethers.formatEther(round.upPool);
 
-        await window.ethereum.request({
-          method: "wallet_addEthereumChain",
-          params: [RH_NETWORK]
-        });
+  document.getElementById("downPool").innerText =
+    ethers.formatEther(round.downPool);
 
-      }
+  const now = Math.floor(Date.now() / 1000);
+  const timeLeft = Number(round.endTime) - now;
 
-      chainId = RH_CHAIN_ID;
-    }
+  document.getElementById("timer").innerText =
+    timeLeft > 0 ? timeLeft + " sec" : "Ended";
+}
 
-    // 3. Получение баланса
-    const balanceHex = await window.ethereum.request({
-      method: "eth_getBalance",
-      params: [address, "latest"]
-    });
+async function betUp() {
+  const eth = document.getElementById("amount").value;
+  const tx = await contract.betUp({
+    value: ethers.parseEther(eth)
+  });
+  await tx.wait();
+  loadData();
+}
 
-    const balanceEth = parseInt(balanceHex, 16) / 1e18;
+async function betDown() {
+  const eth = document.getElementById("amount").value;
+  const tx = await contract.betDown({
+    value: ethers.parseEther(eth)
+  });
+  await tx.wait();
+  loadData();
+}
 
-    document.getElementById("address").innerText = address;
-    document.getElementById("network").innerText = "Robinhood Testnet (46630)";
-    document.getElementById("balance").innerText = balanceEth.toFixed(4);
-    document.getElementById("walletBtn").innerText = "Connected ✓";
-    document.getElementById("status").innerText = "Connected successfully.";
+async function claim() {
+  const roundId = await contract.currentRound();
+  const tx = await contract.claim(roundId);
+  await tx.wait();
+  loadData();
+}
 
-  } catch (error) {
-    console.log(error);
-    document.getElementById("status").innerText = "Connection failed: " + error.message;
-  }
+async function settle(outcome) {
+  const tx = await contract.settle(outcome);
+  await tx.wait();
+  loadData();
 }
 
 </script>
