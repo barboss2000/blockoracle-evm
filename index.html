@@ -946,10 +946,9 @@ async function autoSettle() {
   try {
     let closePrice = 0;
     try {
-      const res = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd");
-      const data = await res.json();
-      closePrice = Math.round(data.bitcoin.usd);
+      closePrice = await fetchBTCPrice();
     } catch(e) {
+      console.error("Price fetch failed, retrying in 5s...");
       setTimeout(autoSettle, 5000);
       return;
     }
@@ -962,11 +961,40 @@ async function autoSettle() {
   }
 }
 
+// Fetch BTC price with multiple fallback sources
+async function fetchBTCPrice() {
+  const sources = [
+    async () => {
+      const r = await fetch("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT");
+      const d = await r.json();
+      return Math.round(parseFloat(d.price));
+    },
+    async () => {
+      const r = await fetch("https://api.coinbase.com/v2/prices/BTC-USD/spot");
+      const d = await r.json();
+      return Math.round(parseFloat(d.data.amount));
+    },
+    async () => {
+      const r = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd");
+      const d = await r.json();
+      return Math.round(d.bitcoin.usd);
+    }
+  ];
+
+  for (const source of sources) {
+    try {
+      const price = await source();
+      if (price > 1000) return price; // sanity check
+    } catch(e) {
+      console.warn("Price source failed, trying next...", e.message);
+    }
+  }
+  throw new Error("All price sources failed");
+}
+
 async function autoStartRound() {
   try {
-    const res = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd");
-    const data = await res.json();
-    const lockPrice = Math.round(data.bitcoin.usd);
+    const lockPrice = await fetchBTCPrice();
     const tx = await contract.startRound(selectedDuration, lockPrice);
     await tx.wait();
     await loadData();
