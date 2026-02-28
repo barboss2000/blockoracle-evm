@@ -436,6 +436,76 @@ body::before {
 .btn-claim:disabled { opacity: 0.3; cursor: not-allowed; }
 
 /* Active bets */
+
+/* Owner panel */
+.owner-panel {
+  background: var(--surface);
+  border: 1px solid rgba(213,253,81,0.2);
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 16px;
+  animation: fadeUp 0.4s ease 0.3s both;
+}
+.owner-panel-title {
+  font-size: 10px;
+  color: var(--neon);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.owner-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.owner-input {
+  flex: 1;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 9px 12px;
+  font-family: 'DM Mono', monospace;
+  font-size: 13px;
+  color: var(--text);
+  outline: none;
+}
+.owner-input:focus { border-color: var(--neon); }
+.btn-owner {
+  padding: 9px 14px;
+  border: none;
+  border-radius: 6px;
+  font-family: 'DM Mono', monospace;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.btn-deposit  { background: var(--neon-dim); color: var(--neon); border: 1px solid rgba(213,253,81,0.3); }
+.btn-deposit:hover  { background: var(--neon); color: var(--black); }
+.btn-withdraw { background: var(--up-dim); color: var(--up); border: 1px solid rgba(74,222,128,0.3); }
+.btn-withdraw:hover { background: var(--up); color: var(--black); }
+.btn-withdraw-all { background: var(--down-dim); color: var(--down); border: 1px solid rgba(248,113,113,0.3); }
+.btn-withdraw-all:hover { background: var(--down); color: var(--black); }
+.owner-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.owner-stat {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  text-align: center;
+}
+.owner-stat-label { font-size: 9px; color: var(--text-muted); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 3px; }
+.owner-stat-val   { font-size: 13px; color: var(--neon); }
+
 .bets-section {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -596,6 +666,41 @@ body::before {
     </div>
 
     <!-- Active bets -->
+
+    <!-- Owner panel (hidden, shown only for owner) -->
+    <div class="owner-panel" id="ownerPanel" style="display:none;">
+      <div class="owner-panel-title">⬡ &nbsp;Owner Controls</div>
+
+      <!-- Balance info -->
+      <div class="owner-stats">
+        <div class="owner-stat">
+          <div class="owner-stat-label">Contract</div>
+          <div class="owner-stat-val" id="ownerBalContract">—</div>
+        </div>
+        <div class="owner-stat">
+          <div class="owner-stat-label">My Profit</div>
+          <div class="owner-stat-val" id="ownerBalProfit">—</div>
+        </div>
+        <div class="owner-stat">
+          <div class="owner-stat-label">Liquidity</div>
+          <div class="owner-stat-val" id="ownerBalLiquidity">—</div>
+        </div>
+      </div>
+
+      <!-- Deposit liquidity -->
+      <div class="owner-row">
+        <input class="owner-input" id="depositAmount" type="number" placeholder="ETH amount" step="0.001" min="0.001"/>
+        <button class="btn-owner btn-deposit" onclick="ownerDeposit()">⬆ Deposit</button>
+      </div>
+
+      <!-- Withdraw profit -->
+      <div class="owner-row">
+        <input class="owner-input" id="withdrawAmount" type="number" placeholder="ETH (0 = all profit)" step="0.001" min="0"/>
+        <button class="btn-owner btn-withdraw" onclick="ownerWithdraw()">⬇ Withdraw Profit</button>
+        <button class="btn-owner btn-withdraw-all" onclick="ownerWithdrawAll()">All</button>
+      </div>
+    </div>
+
     <div class="bets-section" id="betsSection" style="display:none;">
       <div class="bets-title">My Active Bets</div>
       <div id="betsList"></div>
@@ -606,7 +711,7 @@ body::before {
 
 <script>
 
-const CONTRACT_ADDRESS = "0x06D1181aF549bd7150050C6346AC9913f5b06e05";
+const CONTRACT_ADDRESS = "0xE1D77C412785eD34B991f871fFc51f6458deB997";
 const CHAIN_ID = 46630;
 
 const abi = [
@@ -618,7 +723,14 @@ const abi = [
   "function currentRound() view returns(uint256)",
   "function rounds(uint256) view returns(uint256,uint256,uint256,uint256,uint256,uint256,bool,bool)",
   "function pools(uint256,address) view returns(uint256,uint256)",
-  "function owner() view returns(address)"
+  "function owner() view returns(address)",
+  "function depositLiquidity() payable",
+  "function withdrawProfit(uint256)",
+  "function withdrawLiquidity(uint256)",
+  "function balanceInfo() view returns(uint256,uint256,uint256)",
+  "function previewPayout(uint256,address) view returns(uint256)",
+  "function ownerProfit() view returns(uint256)",
+  "function liquidityPool() view returns(uint256)"
 ];
 
 let provider, signer, contract, user, contractOwner;
@@ -793,6 +905,7 @@ async function loadData() {
     }
 
     updateBetButtons();
+    await loadOwnerStats();
   } catch(e) {
     console.error("loadData error:", e);
   }
@@ -921,6 +1034,53 @@ async function claim() {
   } catch(e) {
     alert("Claim failed: " + (e.reason || e.message));
   }
+}
+
+
+// ─── Owner panel ─────────────────────────────────────────────────────────────
+
+async function loadOwnerStats() {
+  if (!contract || !user || user.toLowerCase() !== contractOwner.toLowerCase()) return;
+  try {
+    const info = await contract.balanceInfo();
+    const fmt = (v) => parseFloat(ethers.utils.formatEther(v)).toFixed(4) + " ETH";
+    document.getElementById("ownerBalContract").innerText  = fmt(info[0]);
+    document.getElementById("ownerBalProfit").innerText    = fmt(info[1]);
+    document.getElementById("ownerBalLiquidity").innerText = fmt(info[2]);
+  } catch(e) { console.error("loadOwnerStats:", e); }
+}
+
+async function ownerDeposit() {
+  const amount = document.getElementById("depositAmount").value;
+  if (!amount || parseFloat(amount) <= 0) { alert("Enter ETH amount to deposit"); return; }
+  try {
+    const tx = await contract.depositLiquidity({ value: ethers.utils.parseEther(amount) });
+    await tx.wait();
+    document.getElementById("depositAmount").value = "";
+    await loadOwnerStats();
+    alert("Deposited " + amount + " ETH as liquidity ✓");
+  } catch(e) { alert("Deposit failed: " + (e.reason || e.message)); }
+}
+
+async function ownerWithdraw() {
+  const input = document.getElementById("withdrawAmount").value;
+  const amount = (!input || parseFloat(input) === 0) ? 0 : ethers.utils.parseEther(input);
+  try {
+    const tx = await contract.withdrawProfit(amount);
+    await tx.wait();
+    document.getElementById("withdrawAmount").value = "";
+    await loadOwnerStats();
+    alert("Profit withdrawn ✓");
+  } catch(e) { alert("Withdraw failed: " + (e.reason || e.message)); }
+}
+
+async function ownerWithdrawAll() {
+  try {
+    const tx = await contract.withdrawProfit(0); // 0 = withdraw all
+    await tx.wait();
+    await loadOwnerStats();
+    alert("All profit withdrawn ✓");
+  } catch(e) { alert("Withdraw failed: " + (e.reason || e.message)); }
 }
 
 function checkConnected() {
