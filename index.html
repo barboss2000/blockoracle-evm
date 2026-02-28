@@ -23,13 +23,10 @@ select,input{padding:6px;border-radius:6px;border:none;margin:5px;}
 <body>
 
 <h2>BTC Prediction Market</h2>
-
 <div id="tv_chart"></div>
-
 <br>
 
 <div class="card">
-
 <div class="stat"><b>Wallet:</b> <span id="wallet">Not connected</span></div>
 <div class="stat"><b>Round:</b> <span id="round">-</span></div>
 <div class="stat"><b>UP Pool:</b> <span id="upPool">0</span></div>
@@ -37,66 +34,41 @@ select,input{padding:6px;border-radius:6px;border:none;margin:5px;}
 <div class="stat"><b>UP Probability:</b> <span id="probUp">0%</span></div>
 <div class="stat"><b>Time left:</b> <span id="timeLeft">-</span></div>
 
-<select id="tokenSelect">
-<option value="ETH">ETH</option>
-</select>
+<input id="amount" type="number" placeholder="Amount (ETH)" step="0.001"/>
 
 <br>
-
-<input id="amount" type="number" placeholder="Amount" step="0.001"/>
-
-<br>
-
 <button class="green" onclick="betUp()">Bet UP</button>
 <button class="red" onclick="betDown()">Bet DOWN</button>
-
 <br>
-
 <button class="yellow" onclick="claim()">Claim</button>
 <button class="blue" onclick="connect()">Connect</button>
-
 </div>
 
 <script>
 
-// ================= CONTRACT =================
-
-const contractAddress = "0x788c77B4F510C477517C6635d657625D1aB05676";
+const contractAddress = "0x1df8CCAf82d647AAB82BC7C52b2A6f6FA44190Bf";
 
 const abi = [
-  "function betUp() payable",
-  "function betDown() payable",
-  "function claim(uint256,address)",
-  "function settle(bool)",
-  "function currentRound() view returns(uint256)",
-  "function rounds(uint256) view returns(uint256,uint256,bool,bool)",
-  "function pools(uint256,address) view returns(uint256,uint256)"
+ "function betUp() payable",
+ "function betDown() payable",
+ "function claim(uint256,address)",
+ "function currentRound() view returns(uint256)",
+ "function rounds(uint256) view returns(uint256,uint256,uint256,uint256,bool,bool)",
+ "function pools(uint256,address) view returns(uint256,uint256)"
 ];
 
 let provider, signer, contract, user;
 
-// ================= CONNECT =================
-
 async function connect(){
-  if(!window.ethereum){
-    alert("Install MetaMask");
-    return;
-  }
-
   provider = new ethers.providers.Web3Provider(window.ethereum);
   await provider.send("eth_requestAccounts",[]);
   signer = provider.getSigner();
   user = await signer.getAddress();
-
   contract = new ethers.Contract(contractAddress, abi, signer);
-
   document.getElementById("wallet").innerText =
     user.slice(0,6)+"..."+user.slice(-4);
-
   loadData();
 }
-
-// ================= LOAD DATA =================
 
 async function loadData(){
   const roundId = await contract.currentRound();
@@ -118,8 +90,6 @@ async function loadData(){
   startTimer(round[1]);
 }
 
-// ================= TIMER =================
-
 function startTimer(endTime){
   setInterval(()=>{
     const now = Math.floor(Date.now()/1000);
@@ -129,33 +99,23 @@ function startTimer(endTime){
   },1000);
 }
 
-// ================= BET =================
-
 async function betUp(){
   const amount = document.getElementById("amount").value;
-  if(!amount) return alert("Enter amount");
-
   const tx = await contract.betUp({
     value: ethers.utils.parseEther(amount)
   });
-
   await tx.wait();
   loadData();
 }
 
 async function betDown(){
   const amount = document.getElementById("amount").value;
-  if(!amount) return alert("Enter amount");
-
   const tx = await contract.betDown({
     value: ethers.utils.parseEther(amount)
   });
-
   await tx.wait();
   loadData();
 }
-
-// ================= CLAIM =================
 
 async function claim(){
   const roundId = await contract.currentRound();
@@ -164,21 +124,15 @@ async function claim(){
   alert("Claimed!");
 }
 
-// ================= BTC CHART =================
-
 new TradingView.widget({
   "container_id": "tv_chart",
   "symbol": "BINANCE:BTCUSDT",
   "interval": "5",
-  "timezone": "Etc/UTC",
   "theme": "dark",
-  "style": "1",
-  "locale": "en",
   "width": "100%",
   "height": "400"
 });
 
 </script>
-
 </body>
 </html>
