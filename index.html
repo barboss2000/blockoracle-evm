@@ -9,189 +9,37 @@
 
 <style>
 body { background:#0b1220; color:white; font-family:Arial; text-align:center; }
-.card { background:#1b2438; padding:25px; border-radius:15px; width:460px; margin:auto; }
-button { padding:10px; margin:5px; border-radius:8px; border:none; cursor:pointer; font-weight:bold;}
-.green{background:#1db954;color:white;}
-.red{background:#e84142;color:white;}
-.blue{background:#5865f2;color:white;}
-.yellow{background:#f1c40f;}
-select,input{padding:6px;border-radius:6px;border:none;margin:5px;}
-.stat{margin:6px;}
-button:disabled{opacity:0.5;cursor:not-allowed;}
-</style>
-</head>
+.card { background:#1b2438; padding:25px; border-radius:15px; width:480px; margin:auto; }
+button { padding:10px; margin:5px; border-radius:8px; border:none; cursor:pointer; font-weight:bold; }
+.green  { background:#1db954; color:white; }
+.red    { background:#e84142; color:white; }
+.blue   { background:#5865f2; color:white; }
+.yellow { background:#f1c40f; }
+select, input { padding:6px; border-radius:6px; border:none; margin:5px; background:#0d1b2e; color:white; }
+.stat { margin:6px; }
+button:disabled { opacity:0.5; cursor:not-allowed; }
 
-<body>
-
-<h2>BTC Prediction Market</h2>
-<div id="tv_chart"></div>
-<br>
-
-<div class="card">
-<div class="stat"><b>Wallet:</b> <span id="wallet">Not connected</span></div>
-<div class="stat"><b>Round:</b> <span id="round">-</span></div>
-<div class="stat"><b>UP Pool:</b> <span id="upPool">0</span></div>
-<div class="stat"><b>DOWN Pool:</b> <span id="downPool">0</span></div>
-<div class="stat"><b>UP Probability:</b> <span id="probUp">0%</span></div>
-<div class="stat"><b>Time left:</b> <span id="timeLeft">-</span></div>
-
-<input id="amount" type="number" placeholder="Amount (ETH)" step="0.001"/>
-
-<br>
-<button class="green" onclick="betUp()" id="btnUp" disabled>Bet UP</button>
-<button class="red" onclick="betDown()" id="btnDown" disabled>Bet DOWN</button>
-<br>
-<button class="yellow" onclick="claim()" id="btnClaim" disabled>Claim</button>
-<button class="blue" onclick="connect()">Connect</button>
-</div>
-
-<script>
-
-const contractAddress = "0x1df8CCAf82d647AAB82BC7C52b2A6f6FA44190Bf";
-
-const abi = [
- "function betUp() payable",
- "function betDown() payable",
- "function claim(uint256,address)",
- "function currentRound() view returns(uint256)",
- "function rounds(uint256) view returns(uint256,uint256,uint256,uint256,bool,bool)",
- "function pools(uint256,address) view returns(uint256,uint256)"
-];
-
-let provider, signer, contract, user;
-let timerInterval = null;
-
-async function connect(){
-  if (!window.ethereum) {
-    alert("MetaMask not found! Please install it.");
-    return;
-  }
-  try {
-    provider = new ethers.providers.Web3Provider(window.ethereum);
-    await provider.send("eth_requestAccounts",[]);
-    signer = provider.getSigner();
-    user = await signer.getAddress();
-    contract = new ethers.Contract(contractAddress, abi, signer);
-    document.getElementById("wallet").innerText =
-      user.slice(0,6)+"..."+user.slice(-4);
-
-    document.getElementById("btnUp").disabled = false;
-    document.getElementById("btnDown").disabled = false;
-    document.getElementById("btnClaim").disabled = false;
-
-    loadData();
-  } catch(e) {
-    alert("Connection error: " + e.message);
-  }
+/* Duration selector */
+.duration-label { margin:10px 0 4px; font-size:13px; color:#aaa; }
+.duration-group { display:flex; justify-content:center; gap:6px; margin-bottom:10px; flex-wrap:wrap; }
+.dur-btn {
+  padding:7px 14px; border-radius:20px; border:2px solid #2e3f60;
+  background:#0d1b2e; color:#aaa; cursor:pointer; font-size:13px; font-weight:bold;
+  transition: all 0.2s;
 }
+.dur-btn:hover { border-color:#5865f2; color:white; }
+.dur-btn.active { border-color:#5865f2; background:#5865f2; color:white; }
 
-async function loadData(){
-  if (!contract) return;
-  try {
-    const roundId = await contract.currentRound();
-    document.getElementById("round").innerText = roundId.toString();
-
-    const pool = await contract.pools(roundId, ethers.constants.AddressZero);
-
-    const up = parseFloat(ethers.utils.formatEther(pool[0]));
-    const down = parseFloat(ethers.utils.formatEther(pool[1]));
-
-    document.getElementById("upPool").innerText = up.toFixed(4)+" ETH";
-    document.getElementById("downPool").innerText = down.toFixed(4)+" ETH";
-
-    const total = up + down;
-    const prob = total > 0 ? (up/total*100).toFixed(1) : "0";
-    document.getElementById("probUp").innerText = prob+"%";
-
-    const round = await contract.rounds(roundId);
-    startTimer(round[1].toNumber());
-  } catch(e) {
-    console.error("loadData error:", e);
-  }
+/* Active bets */
+.bets-section { margin-top:16px; }
+.bets-section h4 { color:#aaa; font-size:13px; text-transform:uppercase; letter-spacing:1px; margin-bottom:8px; }
+.bet-item {
+  background:#0d1b2e; border-radius:8px; padding:10px 14px;
+  margin-bottom:6px; display:flex; align-items:center; justify-content:space-between;
+  font-size:13px;
 }
-
-function startTimer(endTime){
-  if (timerInterval) {
-    clearInterval(timerInterval);
-  }
-  timerInterval = setInterval(()=>{
-    const now = Math.floor(Date.now()/1000);
-    const left = endTime - now;
-    document.getElementById("timeLeft").innerText =
-      left > 0 ? left+" sec" : "Ended";
-    if (left <= 0) {
-      clearInterval(timerInterval);
-      timerInterval = null;
-    }
-  },1000);
-}
-
-async function betUp(){
-  if (!checkConnected()) return;
-  const amount = document.getElementById("amount").value;
-  if (!amount || parseFloat(amount) <= 0) {
-    alert("Enter a valid amount");
-    return;
-  }
-  try {
-    const tx = await contract.betUp({
-      value: ethers.utils.parseEther(amount)
-    });
-    await tx.wait();
-    loadData();
-  } catch(e) {
-    alert("Bet UP failed: " + (e.reason || e.message));
-  }
-}
-
-async function betDown(){
-  if (!checkConnected()) return;
-  const amount = document.getElementById("amount").value;
-  if (!amount || parseFloat(amount) <= 0) {
-    alert("Enter a valid amount");
-    return;
-  }
-  try {
-    const tx = await contract.betDown({
-      value: ethers.utils.parseEther(amount)
-    });
-    await tx.wait();
-    loadData();
-  } catch(e) {
-    alert("Bet DOWN failed: " + (e.reason || e.message));
-  }
-}
-
-async function claim(){
-  if (!checkConnected()) return;
-  try {
-    const roundId = await contract.currentRound();
-    const prevRound = roundId.sub(1);
-    const tx = await contract.claim(prevRound, user);
-    await tx.wait();
-    alert("Claimed!");
-  } catch(e) {
-    alert("Claim failed: " + (e.reason || e.message));
-  }
-}
-
-function checkConnected(){
-  if (!user || !contract) {
-    alert("Please connect your wallet first");
-    return false;
-  }
-  return true;
-}
-
-new TradingView.widget({
-  "container_id": "tv_chart",
-  "symbol": "BINANCE:BTCUSDT",
-  "interval": "5",
-  "theme": "dark",
-  "width": "100%",
-  "height": "400"
-});
-
-</script>
-</body>
-</html>
+.bet-dir { font-weight:bold; padding:3px 10px; border-radius:12px; font-size:12px; }
+.bet-dir.up   { background:#1db954; color:white; }
+.bet-dir.down { background:#e84142; color:white; }
+.bet-info { flex:1; margin:0 12px; text-align:left; }
+.bet-info span { display:b
