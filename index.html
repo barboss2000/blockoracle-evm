@@ -92,7 +92,7 @@ button:disabled { opacity:0.4; cursor:not-allowed; }
   <div id="betHint"></div>
   <br>
   <button class="yellow" onclick="claim()" id="btnClaim" disabled>&#9733; Claim</button>
-  <button class="blue"   onclick="connect()">Connect Wallet</button>
+  <button class="blue" id="btnConnect" onclick="connect()">Connect Wallet</button>
 
   <div class="bets-section" id="betsSection" style="display:none;">
     <h4>My Active Bets</h4>
@@ -213,6 +213,12 @@ async function connect() {
     contractOwner = await contract.owner();
 
     document.getElementById("wallet").innerText = user.slice(0,6) + "..." + user.slice(-4);
+    const btn = document.getElementById("btnConnect");
+    btn.innerText = user.slice(0,6) + "..." + user.slice(-4);
+    btn.style.background = "#1b2438";
+    btn.style.border = "1px solid #2e3f60";
+    btn.style.cursor = "default";
+    btn.onclick = null;
     document.getElementById("btnClaim").disabled = false;
     updateBetButtons();
 
