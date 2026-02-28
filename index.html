@@ -32,23 +32,22 @@
 * { margin:0; padding:0; box-sizing:border-box; }
 
 body {
-  background: var(--black);
+  background: #0d1a0a;
   color: var(--text);
   font-family: 'DM Mono', monospace;
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
-/* Subtle grid background */
-body::before {
-  content: '';
+/* Graffiti background canvas */
+#graffiti-bg {
   position: fixed;
   inset: 0;
-  background-image:
-    linear-gradient(rgba(213,253,81,0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(213,253,81,0.03) 1px, transparent 1px);
-  background-size: 40px 40px;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
   z-index: 0;
+  opacity: 0.85;
 }
 
 .page { position: relative; z-index: 1; }
@@ -573,6 +572,7 @@ body::before {
 </style>
 </head>
 <body>
+<canvas id="graffiti-bg"></canvas>
 <div class="page">
 
   <!-- Header -->
@@ -1124,6 +1124,343 @@ new TradingView.widget({
   "width": "100%",
   "height": "380"
 });
+
+
+// ─── Graffiti background ──────────────────────────────────────────────────────
+(function() {
+  const canvas = document.getElementById('graffiti-bg');
+  const ctx = canvas.getContext('2d');
+  const NEON = '#d5fd51';
+  const NEON2 = '#b8e530';
+  const WHITE = 'rgba(255,255,255,0.07)';
+  const DIM = 'rgba(213,253,81,0.08)';
+
+  function resize() {
+    canvas.width  = window.innerWidth;
+    canvas.height = window.innerHeight;
+    draw();
+  }
+
+  function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+  function rand(min, max) { return Math.random() * (max - min) + min; }
+
+  // Seeded random so it's consistent per session
+  let seed = 42;
+  function srnd() {
+    seed = (seed * 16807 + 0) % 2147483647;
+    return (seed - 1) / 2147483646;
+  }
+  function srandInt(min, max) { return Math.floor(srnd() * (max - min + 1)) + min; }
+  function srand(min, max) { return srnd() * (max - min) + min; }
+
+  function drawSprayPaint(ctx, x, y, radius, color, density = 60) {
+    ctx.save();
+    for (let i = 0; i < density; i++) {
+      const angle = srnd() * Math.PI * 2;
+      const r = Math.pow(srnd(), 0.5) * radius;
+      const px = x + Math.cos(angle) * r;
+      const py = y + Math.sin(angle) * r;
+      const alpha = srand(0.02, 0.18);
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(px, py, srand(0.5, 2.5), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawGraffitiLetter(ctx, x, y, letter, size, color, angle = 0) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+
+    // Outline / drip effect
+    ctx.font = `900 ${size}px 'Syne', sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // Spray halo
+    drawSprayPaint(ctx, 0, 0, size * 0.7, color, 80);
+
+    // Shadow layers for depth
+    ctx.shadowColor = color;
+    ctx.shadowBlur = size * 0.3;
+    ctx.globalAlpha = 0.06;
+    ctx.fillStyle = color;
+    ctx.fillText(letter, 3, 6);
+
+    // Outline stroke
+    ctx.globalAlpha = 0.18;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = size * 0.08;
+    ctx.lineJoin = 'round';
+    ctx.strokeText(letter, 0, 0);
+
+    // Fill
+    ctx.globalAlpha = 0.09;
+    ctx.fillStyle = color;
+    ctx.fillText(letter, 0, 0);
+
+    // Drip
+    const dripCount = srandInt(1, 3);
+    for (let d = 0; d < dripCount; d++) {
+      const dx = srand(-size * 0.3, size * 0.3);
+      const dripLen = srand(size * 0.2, size * 0.9);
+      const dripW = srand(2, 6);
+      ctx.globalAlpha = 0.12;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = dripW;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(dx, size * 0.4);
+      ctx.bezierCurveTo(
+        dx + srand(-8, 8), size * 0.5 + dripLen * 0.3,
+        dx + srand(-8, 8), size * 0.5 + dripLen * 0.7,
+        dx + srand(-4, 4), size * 0.4 + dripLen
+      );
+      ctx.stroke();
+      // Drip end blob
+      ctx.globalAlpha = 0.1;
+      ctx.beginPath();
+      ctx.arc(dx + srand(-4,4), size * 0.4 + dripLen, dripW * 1.5, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  function drawTag(ctx, x, y, text, size, color, skew = 0) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.transform(1, 0, skew, 1, 0, 0);
+
+    const letters = text.split('');
+    let ox = 0;
+    for (const l of letters) {
+      const angle = srand(-0.15, 0.15);
+      const vertJitter = srand(-size * 0.15, size * 0.15);
+      drawGraffitiLetter(ctx, ox, vertJitter, l, size, color, angle);
+      ox += size * srand(0.55, 0.72);
+    }
+    ctx.restore();
+  }
+
+  function drawLine(ctx, x1, y1, x2, y2, color, width, alpha) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.lineCap = 'round';
+    ctx.shadowColor = color;
+    ctx.shadowBlur = width * 3;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawArrow(ctx, x, y, size, color) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(srand(-0.3, 0.3));
+    ctx.globalAlpha = 0.12;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = size * 0.08;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    // Arrow up
+    ctx.moveTo(0, size * 0.5);
+    ctx.lineTo(0, -size * 0.5);
+    ctx.moveTo(-size * 0.3, -size * 0.2);
+    ctx.lineTo(0, -size * 0.5);
+    ctx.lineTo(size * 0.3, -size * 0.2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawHexagon(ctx, x, y, r, color) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(srand(0, Math.PI));
+    ctx.globalAlpha = srand(0.04, 0.1);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = srand(1, 4);
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 8;
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const angle = (Math.PI / 3) * i;
+      const px = Math.cos(angle) * r;
+      const py = Math.sin(angle) * r;
+      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function draw() {
+    const W = canvas.width;
+    const H = canvas.height;
+    seed = 42; // reset seed for consistent render
+
+    ctx.clearRect(0, 0, W, H);
+
+    // ── Base: deep dark gradient (not pure black) ──
+    const bgGrad = ctx.createLinearGradient(0, 0, W, H);
+    bgGrad.addColorStop(0,   '#0d1a0a');
+    bgGrad.addColorStop(0.3, '#0a0f1a');
+    bgGrad.addColorStop(0.6, '#130d1f');
+    bgGrad.addColorStop(1,   '#0a1410');
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(0, 0, W, H);
+
+    // ── Ink splat blobs — big color explosions ──
+    const blobs = [
+      { x: W*0.08,  y: H*0.15, r: W*0.22, c: 'rgba(213,253,81,',  a: 0.13 },
+      { x: W*0.85,  y: H*0.75, r: W*0.28, c: 'rgba(213,253,81,',  a: 0.10 },
+      { x: W*0.5,   y: H*0.5,  r: W*0.35, c: 'rgba(74,222,128,',  a: 0.07 },
+      { x: W*0.9,   y: H*0.1,  r: W*0.18, c: 'rgba(248,113,113,', a: 0.10 },
+      { x: W*0.1,   y: H*0.85, r: W*0.20, c: 'rgba(248,113,113,', a: 0.08 },
+      { x: W*0.55,  y: H*0.2,  r: W*0.15, c: 'rgba(184,229,48,',  a: 0.09 },
+      { x: W*0.25,  y: H*0.55, r: W*0.12, c: 'rgba(213,253,81,',  a: 0.08 },
+      { x: W*0.75,  y: H*0.45, r: W*0.16, c: 'rgba(74,222,128,',  a: 0.08 },
+    ];
+
+    for (const b of blobs) {
+      // Radial splat
+      const g = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.r);
+      g.addColorStop(0,   b.c + (b.a * 2.5) + ')');
+      g.addColorStop(0.4, b.c + b.a + ')');
+      g.addColorStop(0.75, b.c + (b.a * 0.3) + ')');
+      g.addColorStop(1,   b.c + '0)');
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Splatter droplets around blob
+      const color = b.c + (b.a * 3) + ')';
+      for (let s = 0; s < 18; s++) {
+        const angle = srnd() * Math.PI * 2;
+        const dist  = srand(b.r * 0.5, b.r * 1.6);
+        const sx = b.x + Math.cos(angle) * dist;
+        const sy = b.y + Math.sin(angle) * dist;
+        const sr2 = srand(2, b.r * 0.12);
+        ctx.globalAlpha = srand(0.05, 0.18);
+        ctx.fillStyle = b.c + (b.a * 4) + ')';
+        ctx.beginPath();
+        // Elongated splat drop
+        ctx.save();
+        ctx.translate(sx, sy);
+        ctx.rotate(angle + Math.PI/2);
+        ctx.ellipse(0, 0, sr2 * 0.5, sr2, 0, 0, Math.PI * 2);
+        ctx.restore();
+        ctx.fill();
+      }
+    }
+
+    // ── Spray strokes — wide brush marks ──
+    const strokes = [
+      { x1: W*0.0,  y1: H*0.3,  x2: W*0.4,  y2: H*0.15, c: NEON,            w: 80 },
+      { x1: W*0.6,  y1: H*0.85, x2: W*1.0,  y2: H*0.65, c: NEON2,           w: 60 },
+      { x1: W*0.2,  y1: H*0.9,  x2: W*0.7,  y2: H*0.95, c: '#4ade80',       w: 50 },
+      { x1: W*0.7,  y1: H*0.0,  x2: W*0.95, y2: H*0.35, c: '#f87171',       w: 55 },
+      { x1: W*0.0,  y1: H*0.65, x2: W*0.25, y2: H*0.5,  c: NEON,            w: 40 },
+    ];
+
+    for (const s of strokes) {
+      const sg = ctx.createLinearGradient(s.x1, s.y1, s.x2, s.y2);
+      sg.addColorStop(0,   s.c + '00');
+      sg.addColorStop(0.3, s.c + '22');
+      sg.addColorStop(0.5, s.c + '18');
+      sg.addColorStop(1,   s.c + '00');
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = sg;
+      ctx.lineWidth = s.w;
+      ctx.lineCap = 'round';
+      ctx.shadowColor = s.c;
+      ctx.shadowBlur = s.w * 0.8;
+      ctx.beginPath();
+      ctx.moveTo(s.x1, s.y1);
+      const mx = (s.x1 + s.x2) / 2 + srand(-W*0.1, W*0.1);
+      const my = (s.y1 + s.y2) / 2 + srand(-H*0.1, H*0.1);
+      ctx.quadraticCurveTo(mx, my, s.x2, s.y2);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+
+    // ── Concrete texture: noise ──
+    for (let i = 0; i < 4000; i++) {
+      ctx.globalAlpha = srand(0.01, 0.05);
+      ctx.fillStyle = srnd() > 0.6 ? '#ffffff' : (srnd() > 0.5 ? NEON : '#333');
+      const px = srnd() * W, py = srnd() * H;
+      ctx.fillRect(px, py, srand(0.5, 2), srand(0.5, 2));
+    }
+
+    // Big background tags - words scattered
+    const words = ['BLOCKORACLE', 'UP', 'DOWN', 'BTC', 'PREDICT', 'WIN', 'CHAIN', '0x'];
+    const colors = [NEON, NEON2, 'rgba(255,255,255,0.6)', NEON];
+
+    // Large background word
+    drawTag(ctx, W * 0.02, H * 0.18, 'BLOCKORACLE', Math.min(W * 0.075, 90), NEON, -0.05);
+    drawTag(ctx, W * 0.55, H * 0.72, 'ROBINHOOD', Math.min(W * 0.065, 80), NEON2, 0.04);
+    drawTag(ctx, W * 0.05, H * 0.82, 'BTC', Math.min(W * 0.1, 120), NEON, -0.08);
+    drawTag(ctx, W * 0.6, H * 0.12, 'PREDICT', Math.min(W * 0.055, 70), 'rgba(255,255,255,0.5)', 0.06);
+    drawTag(ctx, W * 0.3, H * 0.45, 'WIN', Math.min(W * 0.12, 140), NEON2, -0.03);
+    drawTag(ctx, W * 0.7, H * 0.38, '0xCHAIN', Math.min(W * 0.045, 55), NEON, 0.03);
+    drawTag(ctx, W * 0.15, H * 0.6, 'UP', Math.min(W * 0.09, 110), NEON, 0.05);
+    drawTag(ctx, W * 0.75, H * 0.6, 'DOWN', Math.min(W * 0.07, 85), '#f87171', -0.04);
+
+    // Hexagons (blockchain motif)
+    for (let i = 0; i < 18; i++) {
+      drawHexagon(ctx, srnd() * W, srnd() * H, srand(20, 90), i % 3 === 0 ? NEON : NEON2);
+    }
+
+    // Arrows (UP / DOWN arrows)
+    for (let i = 0; i < 12; i++) {
+      drawArrow(ctx, srnd() * W, srnd() * H, srand(30, 80), srnd() > 0.5 ? NEON : '#f87171');
+    }
+
+    // Scratchy tag lines
+    for (let i = 0; i < 25; i++) {
+      const x1 = srnd() * W, y1 = srnd() * H;
+      const x2 = x1 + srand(-200, 200), y2 = y1 + srand(-80, 80);
+      drawLine(ctx, x1, y1, x2, y2, srnd() > 0.7 ? NEON : 'rgba(255,255,255,0.3)', srand(0.5, 3), srand(0.02, 0.07));
+    }
+
+    // Spray circles (random spots)
+    for (let i = 0; i < 20; i++) {
+      drawSprayPaint(ctx, srnd() * W, srnd() * H, srand(30, 120), srnd() > 0.5 ? NEON : NEON2, 40);
+    }
+
+    // Semi-transparent dark overlay so UI stays readable
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = '#080808';
+    ctx.fillRect(0, 0, W, H);
+
+    // Vignette edges
+    const vignette = ctx.createRadialGradient(W/2, H/2, H*0.2, W/2, H/2, H);
+    vignette.addColorStop(0,   'rgba(0,0,0,0)');
+    vignette.addColorStop(0.7, 'rgba(0,0,0,0.2)');
+    vignette.addColorStop(1,   'rgba(0,0,0,0.75)');
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = vignette;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  window.addEventListener('resize', resize);
+  // Wait for Syne font to load for text rendering
+  document.fonts.ready.then(resize);
+  resize();
+})();
 
 </script>
 </body>
