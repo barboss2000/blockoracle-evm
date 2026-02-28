@@ -502,14 +502,33 @@ const COINS = {
 let selectedCoin = 'BTC';
 let tvWidget = null;
 
+// Cache of live prices
+const priceCache = {};
+
 function selectCoin(coin, el) {
   selectedCoin = coin;
   document.querySelectorAll('.coin-tab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
-  // Update chart header
   const cfg = COINS[coin];
-  document.getElementById('chartCoinName').innerHTML = `<span style="color:${cfg.color}">${cfg.name.split(' ')[0]}</span> ${cfg.name.slice(cfg.name.indexOf(' ')+1)}`;
-  // Re-render TradingView widget
+
+  // Update chart header name
+  document.getElementById('chartCoinName').innerHTML =
+    `<span style="color:${cfg.color}">${cfg.name.split(' ')[0]}</span> ${cfg.name.slice(cfg.name.indexOf(' ')+1)}`;
+
+  // Immediately update price from cache if available
+  if (priceCache[coin]) {
+    document.getElementById('chartPrice').innerText = priceCache[coin].price;
+    const changeEl = document.getElementById('chartChange');
+    changeEl.innerText = priceCache[coin].change;
+    changeEl.className = 'chart-change ' + priceCache[coin].dir;
+  } else {
+    document.getElementById('chartPrice').innerText = '—';
+    document.getElementById('chartChange').innerText = '—';
+    // Fetch immediately
+    loadAllPrices();
+  }
+
+  // Re-render TradingView widget for selected coin
   document.getElementById('tv_chart').innerHTML = '';
   tvWidget = new TradingView.widget({
     container_id: 'tv_chart',
@@ -525,26 +544,70 @@ function selectCoin(coin, el) {
   });
 }
 
-// Load prices for all coins
+// ── Real-time prices via Binance WebSocket ──
+function startPriceWebSocket() {
+  const streams = 'btcusdt@ticker/ethusdt@ticker/bnbusdt@ticker/solusdt@ticker/xrpusdt@ticker';
+  const ws = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${streams}`);
+
+  ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    const t = msg.data;
+    if (!t) return;
+    const coinKey = Object.keys(COINS).find(k => COINS[k].binance === t.s);
+    if (!coinKey) return;
+
+    const price  = parseFloat(t.c);  // current price
+    const change = parseFloat(t.P);  // 24h change %
+    const fmt = price < 10 ? price.toFixed(4) : price < 1000 ? price.toFixed(2) : Math.round(price).toLocaleString();
+    const changeStr = (change >= 0 ? '+' : '') + change.toFixed(2) + '%';
+    const dir = change >= 0 ? 'pos' : 'neg';
+
+    // Store in cache instantly
+    priceCache[coinKey] = { price: '$' + fmt, change: changeStr, dir, raw: price };
+
+    // Update tab badge
+    const priceEl = document.getElementById('price-' + coinKey);
+    if (priceEl) priceEl.innerText = '$' + fmt;
+
+    // Update chart header instantly if this is the selected coin
+    if (coinKey === selectedCoin) {
+      document.getElementById('chartPrice').innerText = '$' + fmt;
+      const changeEl = document.getElementById('chartChange');
+      changeEl.innerText = changeStr;
+      changeEl.className = 'chart-change ' + dir;
+    }
+  };
+
+  ws.onclose = () => {
+    // Reconnect after 3s if disconnected
+    setTimeout(startPriceWebSocket, 3000);
+  };
+
+  ws.onerror = () => ws.close();
+}
+
+// Fallback REST fetch (used on first load before WS connects)
 async function loadAllPrices() {
   try {
-    const symbols = Object.values(COINS).map(c => c.binance).join(',');
     const res = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbols=["BTCUSDT","ETHUSDT","BNBUSDT","SOLUSDT","XRPUSDT"]`);
     const data = await res.json();
     if (!Array.isArray(data)) return;
     for (const t of data) {
       const coinKey = Object.keys(COINS).find(k => COINS[k].binance === t.symbol);
       if (!coinKey) continue;
-      const price = parseFloat(t.lastPrice);
+      const price  = parseFloat(t.lastPrice);
       const change = parseFloat(t.priceChangePercent);
       const fmt = price < 10 ? price.toFixed(4) : price < 1000 ? price.toFixed(2) : Math.round(price).toLocaleString();
+      const changeStr = (change >= 0 ? '+' : '') + change.toFixed(2) + '%';
+      const dir = change >= 0 ? 'pos' : 'neg';
+      priceCache[coinKey] = { price: '$' + fmt, change: changeStr, dir, raw: price };
       const priceEl = document.getElementById('price-' + coinKey);
       if (priceEl) priceEl.innerText = '$' + fmt;
       if (coinKey === selectedCoin) {
         document.getElementById('chartPrice').innerText = '$' + fmt;
         const changeEl = document.getElementById('chartChange');
-        changeEl.innerText = (change >= 0 ? '+' : '') + change.toFixed(2) + '%';
-        changeEl.className = 'chart-change ' + (change >= 0 ? 'pos' : 'neg');
+        changeEl.innerText = changeStr;
+        changeEl.className = 'chart-change ' + dir;
       }
     }
   } catch(e) { console.warn('Price load failed', e.message); }
@@ -854,9 +917,9 @@ tvWidget = new TradingView.widget({
   allow_symbol_change: false,
 });
 
-// Load prices immediately and every 15s
+// Load prices via REST first, then switch to WebSocket for real-time
 loadAllPrices();
-setInterval(loadAllPrices, 15000);
+startPriceWebSocket();
 
 // ─── Graffiti background ──────────────────────────────────────────────────────
 (function() {
