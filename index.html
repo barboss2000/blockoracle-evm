@@ -1,183 +1,113 @@
+<!-- ВСТАВЛЯЙ ВЕСЬ ФАЙЛ ЦЕЛИКОМ -->
 <!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8" />
-<title>Prediction Market — Robinhood Testnet</title>
+<title>Prediction Market Pro</title>
 
-<!-- Ethers v5 UMD (ВАЖНО!) -->
 <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
 
 <style>
-body {
-  background: #0b1220;
-  color: white;
-  font-family: Arial;
-  text-align: center;
-  padding: 40px;
-}
-.card {
-  background: #1b2438;
-  padding: 30px;
-  border-radius: 15px;
-  max-width: 420px;
-  margin: auto;
-}
-button {
-  padding: 10px 18px;
-  margin: 6px;
-  border-radius: 8px;
-  border: none;
-  cursor: pointer;
-  font-weight: bold;
-}
-.green { background: #1db954; color: white; }
-.red { background: #e84142; color: white; }
-.yellow { background: #f1c40f; }
-.blue { background: #5865f2; color: white; }
-.gray { background: #ddd; }
-input {
-  padding: 8px;
-  border-radius: 6px;
-  border: none;
-  width: 80px;
-  text-align: center;
-}
+body { background:#0b1220; color:white; font-family:Arial; text-align:center; }
+.card { background:#1b2438; padding:30px; border-radius:15px; width:450px; margin:auto; }
+button { padding:10px; margin:5px; border-radius:8px; border:none; cursor:pointer; }
+.green{background:#1db954;color:white;}
+.red{background:#e84142;color:white;}
+.blue{background:#5865f2;color:white;}
+.yellow{background:#f1c40f;}
+select,input{padding:6px;border-radius:6px;border:none;}
 </style>
 </head>
 
 <body>
 
-<h2>Prediction Market — Robinhood Testnet</h2>
+<h2>BTC Prediction Market</h2>
+
+<!-- TradingView Graph -->
+<div>
+<script src="https://s3.tradingview.com/tv.js"></script>
+<script>
+new TradingView.widget({
+  "container_id": "tv_chart",
+  "symbol": "BINANCE:BTCUSDT",
+  "interval": "5",
+  "timezone": "Etc/UTC",
+  "theme": "dark",
+  "style": "1",
+  "locale": "en",
+  "width": "100%",
+  "height": "400"
+});
+</script>
+<div id="tv_chart"></div>
+</div>
+
+<br>
 
 <div class="card">
-  <p><b>Wallet:</b> <span id="wallet">Not connected</span></p>
-  <p><b>Round:</b> <span id="round">-</span></p>
-  <p><b>UP Pool:</b> <span id="upPool">-</span> ETH</p>
-  <p><b>DOWN Pool:</b> <span id="downPool">-</span> ETH</p>
-  <p><b>Time left:</b> <span id="timeLeft">-</span></p>
 
-  <input id="amount" type="number" placeholder="ETH" step="0.01" />
+<p><b>Wallet:</b> <span id="wallet">Not connected</span></p>
 
-  <br/>
+<select id="tokenSelect">
+<option value="ETH">ETH</option>
+<option value="USDT">USDT</option>
+</select>
 
-  <button class="green" onclick="betUp()">Bet UP</button>
-  <button class="red" onclick="betDown()">Bet DOWN</button>
-  <br/>
-  <button class="yellow" onclick="claim()">Claim</button>
-  <button class="blue" onclick="settle(true)">Settle UP</button>
-  <button class="blue" onclick="settle(false)">Settle DOWN</button>
-  <br/>
-  <button class="gray" onclick="connect()">Connect Wallet</button>
+<br><br>
+
+<input id="amount" type="number" placeholder="Amount" step="0.01"/>
+
+<br>
+
+<button class="green" onclick="betUp()">Bet UP</button>
+<button class="red" onclick="betDown()">Bet DOWN</button>
+
+<br>
+<button class="blue" onclick="connect()">Connect</button>
+
 </div>
 
 <script>
 
-const contractAddress = "0xeE53E37971040f9bb1cA74f9e57bA08B7ed0128c";
+const contractAddress = "PASTE_NEW_CONTRACT_ADDRESS_HERE";
 
 const abi = [
-  "function betUp() payable",
-  "function betDown() payable",
-  "function claim(uint256)",
-  "function settle(bool)",
-  "function currentRound() view returns(uint256)",
-  "function rounds(uint256) view returns(uint256,uint256,uint256,uint256,bool,bool)"
+ "function betUp() payable",
+ "function betDown() payable",
+ "function betUpToken(address,uint256)",
+ "function betDownToken(address,uint256)"
 ];
 
-let provider;
-let signer;
-let contract;
-let user;
+let provider, signer, contract;
 
-async function connect() {
-  try {
-    if (!window.ethereum) {
-      alert("Install MetaMask");
-      return;
-    }
-
-    provider = new ethers.providers.Web3Provider(window.ethereum);
-    await provider.send("eth_requestAccounts", []);
-    signer = provider.getSigner();
-    user = await signer.getAddress();
-
-    const network = await provider.getNetwork();
-
-    // Robinhood chainId = 46630 (0xb626)
-    if (network.chainId !== 46630) {
-      alert("Switch to Robinhood Testnet (46630)");
-      return;
-    }
-
-    contract = new ethers.Contract(contractAddress, abi, signer);
-
-    document.getElementById("wallet").innerText =
-      user.slice(0,6) + "..." + user.slice(-4);
-
-    loadData();
-
-  } catch (err) {
-    console.error(err);
-    alert("Connection failed. Check console.");
-  }
+async function connect(){
+ provider = new ethers.providers.Web3Provider(window.ethereum);
+ await provider.send("eth_requestAccounts",[]);
+ signer = provider.getSigner();
+ contract = new ethers.Contract(contractAddress,abi,signer);
+ document.getElementById("wallet").innerText = await signer.getAddress();
 }
 
-async function loadData() {
-  const roundId = await contract.currentRound();
-  const round = await contract.rounds(roundId);
+async function betUp(){
+ const token = document.getElementById("tokenSelect").value;
+ const amount = document.getElementById("amount").value;
 
-  document.getElementById("round").innerText = roundId;
-  document.getElementById("upPool").innerText =
-    ethers.utils.formatEther(round[2]);
-  document.getElementById("downPool").innerText =
-    ethers.utils.formatEther(round[3]);
-
-  updateTimer(round[1]);
+ if(token==="ETH"){
+  await contract.betUp({value: ethers.utils.parseEther(amount)});
+ } else {
+  alert("USDT requires approve logic (add token address)");
+ }
 }
 
-function updateTimer(endTime) {
-  setInterval(() => {
-    const now = Math.floor(Date.now()/1000);
-    const left = endTime - now;
-    document.getElementById("timeLeft").innerText =
-      left > 0 ? left + " sec" : "Ended";
-  }, 1000);
-}
+async function betDown(){
+ const token = document.getElementById("tokenSelect").value;
+ const amount = document.getElementById("amount").value;
 
-async function betUp() {
-  const value = document.getElementById("amount").value;
-  if (!value) return alert("Enter amount");
-
-  const tx = await contract.betUp({
-    value: ethers.utils.parseEther(value)
-  });
-
-  await tx.wait();
-  loadData();
-}
-
-async function betDown() {
-  const value = document.getElementById("amount").value;
-  if (!value) return alert("Enter amount");
-
-  const tx = await contract.betDown({
-    value: ethers.utils.parseEther(value)
-  });
-
-  await tx.wait();
-  loadData();
-}
-
-async function claim() {
-  const roundId = await contract.currentRound();
-  const tx = await contract.claim(roundId);
-  await tx.wait();
-  loadData();
-}
-
-async function settle(outcome) {
-  const tx = await contract.settle(outcome);
-  await tx.wait();
-  loadData();
+ if(token==="ETH"){
+  await contract.betDown({value: ethers.utils.parseEther(amount)});
+ } else {
+  alert("USDT requires approve logic");
+ }
 }
 
 </script>
