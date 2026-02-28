@@ -3,7 +3,9 @@
 <head>
 <meta charset="UTF-8" />
 <title>Prediction Market — Robinhood Testnet</title>
-<script src="https://cdn.jsdelivr.net/npm/ethers@6.10.0/dist/ethers.min.js"></script>
+
+<!-- Ethers v5 UMD (ВАЖНО!) -->
+<script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
 
 <style>
 body {
@@ -13,36 +15,31 @@ body {
   text-align: center;
   padding: 40px;
 }
-
 .card {
   background: #1b2438;
   padding: 30px;
   border-radius: 15px;
-  max-width: 600px;
+  max-width: 420px;
   margin: auto;
 }
-
 button {
-  padding: 12px 20px;
-  margin: 8px;
+  padding: 10px 18px;
+  margin: 6px;
   border-radius: 8px;
   border: none;
   cursor: pointer;
   font-weight: bold;
 }
-
-.up { background: #16c784; color: black; }
-.down { background: #ea3943; color: white; }
-.claim { background: #f0b90b; }
-.settle { background: #5b6cff; }
-.connect { background: white; }
-
+.green { background: #1db954; color: white; }
+.red { background: #e84142; color: white; }
+.yellow { background: #f1c40f; }
+.blue { background: #5865f2; color: white; }
+.gray { background: #ddd; }
 input {
-  padding: 10px;
-  width: 120px;
+  padding: 8px;
   border-radius: 6px;
   border: none;
-  margin: 10px;
+  width: 80px;
   text-align: center;
 }
 </style>
@@ -53,154 +50,137 @@ input {
 <h2>Prediction Market — Robinhood Testnet</h2>
 
 <div class="card">
+  <p><b>Wallet:</b> <span id="wallet">Not connected</span></p>
+  <p><b>Round:</b> <span id="round">-</span></p>
+  <p><b>UP Pool:</b> <span id="upPool">-</span> ETH</p>
+  <p><b>DOWN Pool:</b> <span id="downPool">-</span> ETH</p>
+  <p><b>Time left:</b> <span id="timeLeft">-</span></p>
 
-<p><b>Wallet:</b> <span id="wallet">Not connected</span></p>
-<p><b>Round:</b> <span id="round">-</span></p>
-<p><b>UP Pool:</b> <span id="upPool">-</span> ETH</p>
-<p><b>DOWN Pool:</b> <span id="downPool">-</span> ETH</p>
-<p><b>Time left:</b> <span id="timer">-</span></p>
+  <input id="amount" type="number" placeholder="ETH" step="0.01" />
 
-<input type="number" id="amount" placeholder="ETH" step="0.01" />
+  <br/>
 
-<br>
-
-<button class="up" onclick="betUp()">Bet UP</button>
-<button class="down" onclick="betDown()">Bet DOWN</button>
-
-<br>
-
-<button class="claim" onclick="claim()">Claim</button>
-<button class="settle" onclick="settle(true)">Settle UP</button>
-<button class="settle" onclick="settle(false)">Settle DOWN</button>
-
-<br><br>
-
-<button class="connect" onclick="connect()">Connect Wallet</button>
-
+  <button class="green" onclick="betUp()">Bet UP</button>
+  <button class="red" onclick="betDown()">Bet DOWN</button>
+  <br/>
+  <button class="yellow" onclick="claim()">Claim</button>
+  <button class="blue" onclick="settle(true)">Settle UP</button>
+  <button class="blue" onclick="settle(false)">Settle DOWN</button>
+  <br/>
+  <button class="gray" onclick="connect()">Connect Wallet</button>
 </div>
 
 <script>
 
-// ===== CONFIG =====
 const contractAddress = "0xeE53E37971040f9bb1cA74f9e57bA08B7ed0128c";
-const expectedChainId = 46630;
 
-// ===== ABI =====
 const abi = [
-  {"inputs":[],"name":"betDown","outputs":[],"stateMutability":"payable","type":"function"},
-  {"inputs":[],"stateMutability":"nonpayable","type":"constructor"},
-  {"anonymous":false,"inputs":[{"indexed":false,"internalType":"uint256","name":"roundId","type":"uint256"},{"indexed":false,"internalType":"address","name":"user","type":"address"},{"indexed":false,"internalType":"bool","name":"direction","type":"bool"},{"indexed":false,"internalType":"uint256","name":"amount","type":"uint256"}],"name":"BetPlaced","type":"event"},
-  {"inputs":[],"name":"betUp","outputs":[],"stateMutability":"payable","type":"function"},
-  {"inputs":[{"internalType":"uint256","name":"roundId","type":"uint256"}],"name":"claim","outputs":[],"stateMutability":"nonpayable","type":"function"},
-  {"anonymous":false,"inputs":[{"indexed":false,"internalType":"uint256","name":"roundId","type":"uint256"},{"indexed":false,"internalType":"address","name":"user","type":"address"},{"indexed":false,"internalType":"uint256","name":"reward","type":"uint256"}],"name":"Claimed","type":"event"},
-  {"anonymous":false,"inputs":[{"indexed":false,"internalType":"uint256","name":"roundId","type":"uint256"},{"indexed":false,"internalType":"bool","name":"outcome","type":"bool"}],"name":"RoundSettled","type":"event"},
-  {"inputs":[{"internalType":"uint256","name":"_duration","type":"uint256"}],"name":"setDuration","outputs":[],"stateMutability":"nonpayable","type":"function"},
-  {"inputs":[{"internalType":"bool","name":"_outcome","type":"bool"}],"name":"settle","outputs":[],"stateMutability":"nonpayable","type":"function"},
-  {"stateMutability":"payable","type":"receive"},
-  {"inputs":[],"name":"currentRound","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
-  {"inputs":[{"internalType":"uint256","name":"","type":"uint256"},{"internalType":"address","name":"","type":"address"}],"name":"downBets","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
-  {"inputs":[],"name":"owner","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},
-  {"inputs":[],"name":"roundDuration","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
-  {"inputs":[{"internalType":"uint256","name":"","type":"uint256"}],"name":"rounds","outputs":[{"internalType":"uint256","name":"startTime","type":"uint256"},{"internalType":"uint256","name":"endTime","type":"uint256"},{"internalType":"uint256","name":"upPool","type":"uint256"},{"internalType":"uint256","name":"downPool","type":"uint256"},{"internalType":"bool","name":"settled","type":"bool"},{"internalType":"bool","name":"outcome","type":"bool"}],"stateMutability":"view","type":"function"},
-  {"inputs":[{"internalType":"uint256","name":"","type":"uint256"},{"internalType":"address","name":"","type":"address"}],"name":"upBets","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"}
+  "function betUp() payable",
+  "function betDown() payable",
+  "function claim(uint256)",
+  "function settle(bool)",
+  "function currentRound() view returns(uint256)",
+  "function rounds(uint256) view returns(uint256,uint256,uint256,uint256,bool,bool)"
 ];
 
-// ===== STATE =====
 let provider;
 let signer;
 let contract;
-let timerInterval;
+let user;
 
-// ===== CONNECT =====
 async function connect() {
   try {
     if (!window.ethereum) {
-      alert("MetaMask not installed");
+      alert("Install MetaMask");
       return;
     }
 
-    console.log("Requesting accounts...");
-
-    const accounts = await window.ethereum.request({
-      method: "eth_requestAccounts"
-    });
-
-    console.log("Accounts:", accounts);
-
-    provider = new ethers.BrowserProvider(window.ethereum);
+    provider = new ethers.providers.Web3Provider(window.ethereum);
+    await provider.send("eth_requestAccounts", []);
+    signer = provider.getSigner();
+    user = await signer.getAddress();
 
     const network = await provider.getNetwork();
-    console.log("Connected chain:", network.chainId);
 
-    if (Number(network.chainId) !== 46630) {
-      alert("Wrong network. Switch to Robinhood Testnet (46630)");
+    // Robinhood chainId = 46630 (0xb626)
+    if (network.chainId !== 46630) {
+      alert("Switch to Robinhood Testnet (46630)");
       return;
     }
 
-    signer = await provider.getSigner();
     contract = new ethers.Contract(contractAddress, abi, signer);
 
-    const address = await signer.getAddress();
-    document.getElementById("wallet").innerText = address;
+    document.getElementById("wallet").innerText =
+      user.slice(0,6) + "..." + user.slice(-4);
 
     loadData();
-    setInterval(loadData, 1000);
 
   } catch (err) {
-    console.error("FULL ERROR:", err);
-    alert("Connection failed. Check console (F12).");
+    console.error(err);
+    alert("Connection failed. Check console.");
   }
 }
-// ===== LOAD DATA =====
+
 async function loadData() {
-  if (!contract) return;
-
   const roundId = await contract.currentRound();
-  document.getElementById("round").innerText = roundId;
-
   const round = await contract.rounds(roundId);
 
+  document.getElementById("round").innerText = roundId;
   document.getElementById("upPool").innerText =
-    ethers.formatEther(round.upPool);
-
+    ethers.utils.formatEther(round[2]);
   document.getElementById("downPool").innerText =
-    ethers.formatEther(round.downPool);
+    ethers.utils.formatEther(round[3]);
 
-  const now = Math.floor(Date.now() / 1000);
-  const timeLeft = Number(round.endTime) - now;
-
-  document.getElementById("timer").innerText =
-    timeLeft > 0 ? timeLeft + " sec" : "Ended";
+  updateTimer(round[1]);
 }
 
-// ===== ACTIONS =====
+function updateTimer(endTime) {
+  setInterval(() => {
+    const now = Math.floor(Date.now()/1000);
+    const left = endTime - now;
+    document.getElementById("timeLeft").innerText =
+      left > 0 ? left + " sec" : "Ended";
+  }, 1000);
+}
+
 async function betUp() {
-  const eth = document.getElementById("amount").value;
+  const value = document.getElementById("amount").value;
+  if (!value) return alert("Enter amount");
+
   const tx = await contract.betUp({
-    value: ethers.parseEther(eth)
+    value: ethers.utils.parseEther(value)
   });
+
   await tx.wait();
+  loadData();
 }
 
 async function betDown() {
-  const eth = document.getElementById("amount").value;
+  const value = document.getElementById("amount").value;
+  if (!value) return alert("Enter amount");
+
   const tx = await contract.betDown({
-    value: ethers.parseEther(eth)
+    value: ethers.utils.parseEther(value)
   });
+
   await tx.wait();
+  loadData();
 }
 
 async function claim() {
   const roundId = await contract.currentRound();
   const tx = await contract.claim(roundId);
   await tx.wait();
+  loadData();
 }
 
 async function settle(outcome) {
   const tx = await contract.settle(outcome);
   await tx.wait();
+  loadData();
 }
 
 </script>
+
 </body>
 </html>
