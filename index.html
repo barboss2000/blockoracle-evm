@@ -23,7 +23,6 @@ button:disabled { opacity:0.4; cursor:not-allowed; }
 
 .divider { border-top:1px solid #2e3f60; margin:14px 0; }
 
-/* Duration selector */
 .duration-label { margin:10px 0 4px; font-size:13px; color:#aaa; }
 .duration-group { display:flex; justify-content:center; gap:6px; margin-bottom:10px; flex-wrap:wrap; }
 .dur-btn {
@@ -34,7 +33,6 @@ button:disabled { opacity:0.4; cursor:not-allowed; }
 .dur-btn:hover { border-color:#5865f2; color:white; }
 .dur-btn.active { border-color:#5865f2; background:#5865f2; color:white; }
 
-/* Round status badge */
 .status-badge {
   display:inline-block; padding:3px 12px; border-radius:12px;
   font-size:12px; font-weight:bold; margin-left:6px;
@@ -43,14 +41,12 @@ button:disabled { opacity:0.4; cursor:not-allowed; }
 .status-ended   { background:#e84142; color:white; }
 .status-waiting { background:#f1c40f; color:#000; }
 
-/* Admin panel */
 .admin-panel {
   background:#0d1b2e; border-radius:10px; padding:14px; margin-top:14px;
   border:1px solid #2e3f60;
 }
 .admin-panel h4 { margin:0 0 10px; color:#aaa; font-size:12px; text-transform:uppercase; letter-spacing:1px; }
 
-/* Active bets */
 .bets-section { margin-top:16px; }
 .bets-section h4 { color:#aaa; font-size:13px; text-transform:uppercase; letter-spacing:1px; margin-bottom:8px; }
 .bet-item {
@@ -66,6 +62,9 @@ button:disabled { opacity:0.4; cursor:not-allowed; }
 .bet-info strong { font-size:13px; color:white; }
 .bet-timer { font-size:20px; font-weight:bold; color:#f1c40f; min-width:52px; text-align:right; }
 .bet-timer.expired { color:#e84142; font-size:12px; font-weight:normal; }
+
+/* Hint message under bet buttons */
+#betHint { font-size:12px; color:#f1c40f; margin:4px 0 0; min-height:18px; }
 </style>
 </head>
 
@@ -77,7 +76,6 @@ button:disabled { opacity:0.4; cursor:not-allowed; }
 
 <div class="card">
 
-  <!-- Stats -->
   <div class="stat"><b>Wallet:</b> <span id="wallet">Not connected</span></div>
   <div class="stat">
     <b>Round:</b> <span id="round">-</span>
@@ -91,7 +89,6 @@ button:disabled { opacity:0.4; cursor:not-allowed; }
 
   <div class="divider"></div>
 
-  <!-- Bet controls -->
   <input id="amount" type="number" placeholder="Amount (ETH)" step="0.0001" min="0.0001"/>
 
   <div class="duration-label">Bet duration:</div>
@@ -105,13 +102,13 @@ button:disabled { opacity:0.4; cursor:not-allowed; }
 
   <button class="green" onclick="betUp()" id="btnUp" disabled>&#9650; Bet UP</button>
   <button class="red"   onclick="betDown()" id="btnDown" disabled>&#9660; Bet DOWN</button>
+  <div id="betHint"></div>
   <br>
   <button class="yellow" onclick="claim()" id="btnClaim" disabled>&#9733; Claim</button>
   <button class="blue"   onclick="connect()">Connect Wallet</button>
 
   <div class="divider"></div>
 
-  <!-- Start Round (anyone can call) -->
   <div class="admin-panel">
     <h4>&#9654; Round Management</h4>
 
@@ -126,7 +123,7 @@ button:disabled { opacity:0.4; cursor:not-allowed; }
       </select>
       <label style="font-size:13px;color:#aaa;">BTC Price ($):</label>
       <input id="lockPriceInput" type="number" placeholder="e.g. 65000" style="width:110px;"/>
-      <button class="orange" id="btnFetchPrice" onclick="fetchBTCPrice()" title="Auto-fetch BTC price">&#8635; Auto</button>
+      <button class="orange" id="btnFetchPrice" onclick="fetchBTCPrice()">&#8635; Auto</button>
     </div>
 
     <button class="green" onclick="startRound()" id="btnStart" disabled>&#9654; Start New Round</button>
@@ -134,12 +131,11 @@ button:disabled { opacity:0.4; cursor:not-allowed; }
     <div style="margin-top:10px;">
       <label style="font-size:13px;color:#aaa;">Close Price ($):</label>
       <input id="closePriceInput" type="number" placeholder="e.g. 65500" style="width:110px;"/>
-      <button class="orange" onclick="fetchBTCPriceForSettle()" title="Auto-fetch BTC price">&#8635; Auto</button>
+      <button class="orange" onclick="fetchBTCPriceForSettle()">&#8635; Auto</button>
     </div>
     <button class="purple" onclick="settleRound()" id="btnSettle" disabled>&#9632; Settle Round (Owner)</button>
   </div>
 
-  <!-- Active bets list -->
   <div class="bets-section" id="betsSection" style="display:none;">
     <h4>My Active Bets</h4>
     <div id="betsList"></div>
@@ -150,7 +146,7 @@ button:disabled { opacity:0.4; cursor:not-allowed; }
 <script>
 
 const CONTRACT_ADDRESS = "0x06D1181aF549bd7150050C6346AC9913f5b06e05";
-const CHAIN_ID = 46630; // Robinhood Chain Testnet
+const CHAIN_ID = 46630;
 
 const abi = [
   "function betUp() payable",
@@ -169,16 +165,31 @@ let roundTimerInterval = null;
 let selectedDuration = 1;
 let activeBets = [];
 let betsRenderInterval = null;
-let currentRoundData = null;
+let isRoundActive = false; // KEY: tracks if betting is currently allowed
 
-// --- Duration selector ---
 function selectDuration(min, btn) {
   selectedDuration = min;
   document.querySelectorAll('.dur-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
 }
 
-// --- Active bets tracker ---
+// Update bet buttons based on round state
+function updateBetButtons() {
+  const connected = !!user && !!contract;
+  const canBet = connected && isRoundActive;
+  document.getElementById("btnUp").disabled = !canBet;
+  document.getElementById("btnDown").disabled = !canBet;
+
+  const hint = document.getElementById("betHint");
+  if (!connected) {
+    hint.innerText = "";
+  } else if (!isRoundActive) {
+    hint.innerText = "⚠ Start a round first to place bets";
+  } else {
+    hint.innerText = "";
+  }
+}
+
 function addActiveBet(direction, amount, durationMin, roundId) {
   const endTime = Math.floor(Date.now() / 1000) + durationMin * 60;
   activeBets.push({ direction, amount, endTime, roundId: roundId.toString(), durationMin });
@@ -217,14 +228,12 @@ function formatTime(seconds) {
   return m > 0 ? `${m}:${s.toString().padStart(2,'0')}` : `${s}s`;
 }
 
-// --- Connect wallet ---
 async function connect() {
   if (!window.ethereum) { alert("MetaMask not found!"); return; }
   try {
     provider = new ethers.providers.Web3Provider(window.ethereum);
     await provider.send("eth_requestAccounts", []);
 
-    // Check chain
     const network = await provider.getNetwork();
     if (network.chainId !== CHAIN_ID) {
       try {
@@ -245,26 +254,20 @@ async function connect() {
     contractOwner = await contract.owner();
 
     document.getElementById("wallet").innerText = user.slice(0,6) + "..." + user.slice(-4);
-
-    document.getElementById("btnUp").disabled = false;
-    document.getElementById("btnDown").disabled = false;
     document.getElementById("btnClaim").disabled = false;
     document.getElementById("btnStart").disabled = false;
 
-    // Only owner sees settle button enabled
     if (user.toLowerCase() === contractOwner.toLowerCase()) {
       document.getElementById("btnSettle").disabled = false;
     }
 
     await loadData();
-    // Auto-refresh every 10 sec
     setInterval(loadData, 10000);
   } catch(e) {
     alert("Connection error: " + e.message);
   }
 }
 
-// --- Load contract data ---
 async function loadData() {
   if (!contract) return;
   try {
@@ -272,9 +275,13 @@ async function loadData() {
     document.getElementById("round").innerText = roundId.toString();
 
     if (roundId.toNumber() === 0) {
+      // No rounds yet
+      isRoundActive = false;
+      updateBetButtons();
       document.getElementById("roundStatus").innerText = "No rounds yet";
       document.getElementById("roundStatus").className = "status-badge status-waiting";
       document.getElementById("timeLeft").innerText = "-";
+      document.getElementById("lockPrice").innerText = "-";
       return;
     }
 
@@ -284,13 +291,9 @@ async function loadData() {
     document.getElementById("upPool").innerText = up.toFixed(4) + " ETH";
     document.getElementById("downPool").innerText = down.toFixed(4) + " ETH";
     const total = up + down;
-    const prob = total > 0 ? (up / total * 100).toFixed(1) : "0";
-    document.getElementById("probUp").innerText = prob + "%";
+    document.getElementById("probUp").innerText = total > 0 ? (up / total * 100).toFixed(1) + "%" : "0%";
 
     const round = await contract.rounds(roundId);
-    currentRoundData = round;
-
-    // round: startTime[0], endTime[1], lockPrice[2], closePrice[3], upPool[4], downPool[5], settled[6], upWon[7]
     const endTime = round[1].toNumber();
     const lockPriceRaw = round[2].toNumber();
     const settled = round[6];
@@ -300,20 +303,32 @@ async function loadData() {
     const now = Math.floor(Date.now() / 1000);
 
     if (settled) {
+      // Round settled — can start new one
+      isRoundActive = false;
       document.getElementById("roundStatus").innerText = "Settled";
       document.getElementById("roundStatus").className = "status-badge status-waiting";
-      document.getElementById("timeLeft").innerText = "Settled";
+      document.getElementById("timeLeft").innerText = "Settled ✓";
       if (roundTimerInterval) { clearInterval(roundTimerInterval); roundTimerInterval = null; }
+      // Show result
+      const upWon = round[7];
+      const closePrice = round[3].toNumber();
+      document.getElementById("timeLeft").innerText = `Settled ✓ | Close: $${closePrice.toLocaleString()} | ${upWon ? "⬆ UP WON" : "⬇ DOWN WON"}`;
     } else if (now >= endTime) {
+      // Round ended but not settled yet
+      isRoundActive = false;
       document.getElementById("roundStatus").innerText = "Ended";
       document.getElementById("roundStatus").className = "status-badge status-ended";
-      document.getElementById("timeLeft").innerText = "Ended — waiting for settlement";
+      document.getElementById("timeLeft").innerText = "Ended — awaiting settlement";
       if (roundTimerInterval) { clearInterval(roundTimerInterval); roundTimerInterval = null; }
     } else {
+      // Round is active — bets allowed
+      isRoundActive = true;
       document.getElementById("roundStatus").innerText = "Active";
       document.getElementById("roundStatus").className = "status-badge status-active";
       startRoundTimer(endTime);
     }
+
+    updateBetButtons();
   } catch(e) {
     console.error("loadData error:", e);
   }
@@ -327,7 +342,11 @@ function startRoundTimer(endTime) {
     if (left > 0) {
       document.getElementById("timeLeft").innerText = formatTime(left);
     } else {
-      document.getElementById("timeLeft").innerText = "Ended — waiting for settlement";
+      isRoundActive = false;
+      updateBetButtons();
+      document.getElementById("timeLeft").innerText = "Ended — awaiting settlement";
+      document.getElementById("roundStatus").innerText = "Ended";
+      document.getElementById("roundStatus").className = "status-badge status-ended";
       clearInterval(roundTimerInterval);
       roundTimerInterval = null;
       loadData();
@@ -335,14 +354,12 @@ function startRoundTimer(endTime) {
   }, 1000);
 }
 
-// --- Fetch BTC price from CoinGecko ---
 async function fetchBTCPrice() {
   try {
     document.getElementById("btnFetchPrice").innerText = "...";
     const res = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd");
     const data = await res.json();
-    const price = Math.round(data.bitcoin.usd);
-    document.getElementById("lockPriceInput").value = price;
+    document.getElementById("lockPriceInput").value = Math.round(data.bitcoin.usd);
     document.getElementById("btnFetchPrice").innerText = "✓";
     setTimeout(() => document.getElementById("btnFetchPrice").innerText = "↻ Auto", 2000);
   } catch(e) {
@@ -361,18 +378,16 @@ async function fetchBTCPriceForSettle() {
   }
 }
 
-// --- Start round ---
 async function startRound() {
   if (!checkConnected()) return;
   const duration = parseInt(document.getElementById("startDuration").value);
   const lockPrice = parseInt(document.getElementById("lockPriceInput").value);
-  if (!lockPrice || lockPrice <= 0) { alert("Enter a valid BTC lock price"); return; }
+  if (!lockPrice || lockPrice <= 0) { alert("Enter BTC lock price (click ↻ Auto or type manually)"); return; }
   try {
     document.getElementById("btnStart").disabled = true;
     document.getElementById("btnStart").innerText = "Starting...";
     const tx = await contract.startRound(duration, lockPrice);
     await tx.wait();
-    alert(`Round started! Duration: ${duration} min, Lock price: $${lockPrice}`);
     await loadData();
   } catch(e) {
     alert("Start round failed: " + (e.reason || e.message));
@@ -382,7 +397,6 @@ async function startRound() {
   }
 }
 
-// --- Settle round (owner only) ---
 async function settleRound() {
   if (!checkConnected()) return;
   if (user.toLowerCase() !== contractOwner.toLowerCase()) {
@@ -390,13 +404,12 @@ async function settleRound() {
     return;
   }
   const closePrice = parseInt(document.getElementById("closePriceInput").value);
-  if (!closePrice || closePrice <= 0) { alert("Enter a valid BTC close price"); return; }
+  if (!closePrice || closePrice <= 0) { alert("Enter BTC close price (click ↻ Auto or type manually)"); return; }
   try {
     document.getElementById("btnSettle").disabled = true;
     document.getElementById("btnSettle").innerText = "Settling...";
     const tx = await contract.settleRound(closePrice);
     await tx.wait();
-    alert(`Round settled! Close price: $${closePrice}`);
     await loadData();
   } catch(e) {
     alert("Settle failed: " + (e.reason || e.message));
@@ -406,12 +419,13 @@ async function settleRound() {
   }
 }
 
-// --- Bet UP ---
 async function betUp() {
   if (!checkConnected()) return;
+  if (!isRoundActive) { alert("No active round. Start a round first!"); return; }
   const amount = document.getElementById("amount").value;
   if (!amount || parseFloat(amount) <= 0) { alert("Enter a valid amount"); return; }
   try {
+    document.getElementById("btnUp").disabled = true;
     const roundId = await contract.currentRound();
     const tx = await contract.betUp({ value: ethers.utils.parseEther(amount) });
     await tx.wait();
@@ -419,15 +433,18 @@ async function betUp() {
     await loadData();
   } catch(e) {
     alert("Bet UP failed: " + (e.reason || e.message));
+  } finally {
+    updateBetButtons();
   }
 }
 
-// --- Bet DOWN ---
 async function betDown() {
   if (!checkConnected()) return;
+  if (!isRoundActive) { alert("No active round. Start a round first!"); return; }
   const amount = document.getElementById("amount").value;
   if (!amount || parseFloat(amount) <= 0) { alert("Enter a valid amount"); return; }
   try {
+    document.getElementById("btnDown").disabled = true;
     const roundId = await contract.currentRound();
     const tx = await contract.betDown({ value: ethers.utils.parseEther(amount) });
     await tx.wait();
@@ -435,10 +452,11 @@ async function betDown() {
     await loadData();
   } catch(e) {
     alert("Bet DOWN failed: " + (e.reason || e.message));
+  } finally {
+    updateBetButtons();
   }
 }
 
-// --- Claim ---
 async function claim() {
   if (!checkConnected()) return;
   try {
@@ -459,7 +477,6 @@ function checkConnected() {
   return true;
 }
 
-// --- TradingView chart ---
 new TradingView.widget({
   "container_id": "tv_chart",
   "symbol": "BINANCE:BTCUSDT",
