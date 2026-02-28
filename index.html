@@ -91,7 +91,7 @@ button:disabled { opacity:0.4; cursor:not-allowed; }
 
   <input id="amount" type="number" placeholder="Amount (ETH)" step="0.0001" min="0.0001"/>
 
-  <div class="duration-label">Bet duration:</div>
+  <div class="duration-label">Выбери длительность:</div>
   <div class="duration-group">
     <button class="dur-btn active" onclick="selectDuration(1, this)">1 min</button>
     <button class="dur-btn" onclick="selectDuration(2, this)">2 min</button>
@@ -102,7 +102,6 @@ button:disabled { opacity:0.4; cursor:not-allowed; }
 
   <button class="green" onclick="betUp()" id="btnUp" disabled>&#9650; Bet UP</button>
   <button class="red"   onclick="betDown()" id="btnDown" disabled>&#9660; Bet DOWN</button>
-  <div id="betHint"></div>
   <br>
   <button class="yellow" onclick="claim()" id="btnClaim" disabled>&#9733; Claim</button>
   <button class="blue"   onclick="connect()">Connect Wallet</button>
@@ -113,14 +112,7 @@ button:disabled { opacity:0.4; cursor:not-allowed; }
     <h4>&#9654; Round Management</h4>
 
     <div style="margin-bottom:8px;">
-      <label style="font-size:13px;color:#aaa;">Duration (min):</label>
-      <select id="startDuration">
-        <option value="1">1 min</option>
-        <option value="2">2 min</option>
-        <option value="3">3 min</option>
-        <option value="4">4 min</option>
-        <option value="5" selected>5 min</option>
-      </select>
+
       <label style="font-size:13px;color:#aaa;">BTC Price ($):</label>
       <input id="lockPriceInput" type="number" placeholder="e.g. 65000" style="width:110px;"/>
       <button class="orange" id="btnFetchPrice" onclick="fetchBTCPrice()">&#8635; Auto</button>
@@ -176,18 +168,8 @@ function selectDuration(min, btn) {
 // Update bet buttons based on round state
 function updateBetButtons() {
   const connected = !!user && !!contract;
-  const canBet = connected && isRoundActive;
-  document.getElementById("btnUp").disabled = !canBet;
-  document.getElementById("btnDown").disabled = !canBet;
-
-  const hint = document.getElementById("betHint");
-  if (!connected) {
-    hint.innerText = "";
-  } else if (!isRoundActive) {
-    hint.innerText = "⚠ Start a round first to place bets";
-  } else {
-    hint.innerText = "";
-  }
+  document.getElementById("btnUp").disabled = !connected;
+  document.getElementById("btnDown").disabled = !connected;
 }
 
 function addActiveBet(direction, amount, durationMin, roundId) {
@@ -380,7 +362,7 @@ async function fetchBTCPriceForSettle() {
 
 async function startRound() {
   if (!checkConnected()) return;
-  const duration = parseInt(document.getElementById("startDuration").value);
+  const duration = selectedDuration;
   const lockPrice = parseInt(document.getElementById("lockPriceInput").value);
   if (!lockPrice || lockPrice <= 0) { alert("Enter BTC lock price (click ↻ Auto or type manually)"); return; }
   try {
@@ -419,13 +401,45 @@ async function settleRound() {
   }
 }
 
+// Auto-start round when user clicks Bet without active round
+async function autoStartRound() {
+  const lockPriceInput = document.getElementById("lockPriceInput").value;
+  let lockPrice = parseInt(lockPriceInput);
+
+  // If no price entered, fetch automatically
+  if (!lockPrice || lockPrice <= 0) {
+    try {
+      const res = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd");
+      const data = await res.json();
+      lockPrice = Math.round(data.bitcoin.usd);
+      document.getElementById("lockPriceInput").value = lockPrice;
+    } catch(e) {
+      alert("Could not fetch BTC price. Please enter price manually in Round Management.");
+      return;
+    }
+  }
+
+  try {
+    const tx = await contract.startRound(selectedDuration, lockPrice);
+    await tx.wait();
+    await loadData();
+  } catch(e) {
+    alert("Could not start round: " + (e.reason || e.message));
+  }
+}
+
 async function betUp() {
   if (!checkConnected()) return;
-  if (!isRoundActive) { alert("No active round. Start a round first!"); return; }
   const amount = document.getElementById("amount").value;
   if (!amount || parseFloat(amount) <= 0) { alert("Enter a valid amount"); return; }
   try {
     document.getElementById("btnUp").disabled = true;
+    document.getElementById("btnDown").disabled = true;
+    // Auto-start round if not active
+    if (!isRoundActive) {
+      await autoStartRound();
+      if (!isRoundActive) return; // failed to start
+    }
     const roundId = await contract.currentRound();
     const tx = await contract.betUp({ value: ethers.utils.parseEther(amount) });
     await tx.wait();
@@ -440,11 +454,16 @@ async function betUp() {
 
 async function betDown() {
   if (!checkConnected()) return;
-  if (!isRoundActive) { alert("No active round. Start a round first!"); return; }
   const amount = document.getElementById("amount").value;
   if (!amount || parseFloat(amount) <= 0) { alert("Enter a valid amount"); return; }
   try {
     document.getElementById("btnDown").disabled = true;
+    document.getElementById("btnUp").disabled = true;
+    // Auto-start round if not active
+    if (!isRoundActive) {
+      await autoStartRound();
+      if (!isRoundActive) return; // failed to start
+    }
     const roundId = await contract.currentRound();
     const tx = await contract.betDown({ value: ethers.utils.parseEther(amount) });
     await tx.wait();
