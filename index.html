@@ -1,3 +1,4 @@
+```html
 <!DOCTYPE html>
 <html>
 <head>
@@ -42,4 +43,254 @@ button:disabled { opacity:0.5; cursor:not-allowed; }
 .bet-dir.up   { background:#1db954; color:white; }
 .bet-dir.down { background:#e84142; color:white; }
 .bet-info { flex:1; margin:0 12px; text-align:left; }
-.bet-info span { display:b
+.bet-info span { display:block; color:#aaa; font-size:11px; }
+.bet-info strong { font-size:13px; color:white; }
+.bet-timer { font-size:20px; font-weight:bold; color:#f1c40f; min-width:52px; text-align:right; }
+.bet-timer.expired { color:#e84142; font-size:12px; font-weight:normal; }
+</style>
+</head>
+
+<body>
+
+<h2>BTC Prediction Market</h2>
+<div id="tv_chart"></div>
+<br>
+
+<div class="card">
+  <div class="stat"><b>Wallet:</b> <span id="wallet">Not connected</span></div>
+  <div class="stat"><b>Round:</b> <span id="round">-</span></div>
+  <div class="stat"><b>UP Pool:</b> <span id="upPool">0</span></div>
+  <div class="stat"><b>DOWN Pool:</b> <span id="downPool">0</span></div>
+  <div class="stat"><b>UP Probability:</b> <span id="probUp">0%</span></div>
+  <div class="stat"><b>Round ends in:</b> <span id="timeLeft">-</span></div>
+
+  <br>
+  <input id="amount" type="number" placeholder="Amount (ETH)" step="0.001"/>
+
+  <div class="duration-label">Bet duration:</div>
+  <div class="duration-group">
+    <button class="dur-btn active" onclick="selectDuration(1, this)">1 min</button>
+    <button class="dur-btn" onclick="selectDuration(2, this)">2 min</button>
+    <button class="dur-btn" onclick="selectDuration(3, this)">3 min</button>
+    <button class="dur-btn" onclick="selectDuration(4, this)">4 min</button>
+    <button class="dur-btn" onclick="selectDuration(5, this)">5 min</button>
+  </div>
+
+  <button class="green" onclick="betUp()" id="btnUp" disabled>&#9650; Bet UP</button>
+  <button class="red"   onclick="betDown()" id="btnDown" disabled>&#9660; Bet DOWN</button>
+  <br>
+  <button class="yellow" onclick="claim()" id="btnClaim" disabled>Claim</button>
+  <button class="blue"   onclick="connect()">Connect Wallet</button>
+
+  <div class="bets-section" id="betsSection" style="display:none;">
+    <h4>My Active Bets</h4>
+    <div id="betsList"></div>
+  </div>
+</div>
+
+<script>
+
+const contractAddress = "0x1df8CCAf82d647AAB82BC7C52b2A6f6FA44190Bf";
+
+const abi = [
+  "function betUp() payable",
+  "function betDown() payable",
+  "function claim(uint256,address)",
+  "function currentRound() view returns(uint256)",
+  "function rounds(uint256) view returns(uint256,uint256,uint256,uint256,bool,bool)",
+  "function pools(uint256,address) view returns(uint256,uint256)"
+];
+
+let provider, signer, contract, user;
+let roundTimerInterval = null;
+
+// --- Duration logic ---
+let selectedDuration = 1;
+
+function selectDuration(min, btn) {
+  selectedDuration = min;
+  document.querySelectorAll('.dur-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+// --- Active bets tracker ---
+let activeBets = [];
+let betsRenderInterval = null;
+
+function addActiveBet(direction, amount, durationMin, roundId) {
+  const endTime = Math.floor(Date.now() / 1000) + durationMin * 60;
+  activeBets.push({
+    direction,
+    amount,
+    endTime,
+    roundId: roundId.toString(),
+    durationMin
+  });
+  renderBets();
+  if (!betsRenderInterval) {
+    betsRenderInterval = setInterval(renderBets, 1000);
+  }
+}
+
+function renderBets() {
+  const list = document.getElementById('betsList');
+  const section = document.getElementById('betsSection');
+  if (activeBets.length === 0) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = 'block';
+  const now = Math.floor(Date.now() / 1000);
+
+  list.innerHTML = activeBets.map((bet) => {
+    const left = bet.endTime - now;
+    const timerHtml = left > 0
+      ? `<div class="bet-timer">${formatTime(left)}</div>`
+      : `<div class="bet-timer expired">Awaiting result</div>`;
+    const dirClass = bet.direction === 'UP' ? 'up' : 'down';
+    return `
+      <div class="bet-item">
+        <span class="bet-dir ${dirClass}">${bet.direction}</span>
+        <div class="bet-info">
+          <strong>${parseFloat(bet.amount).toFixed(4)} ETH</strong>
+          <span>Round #${bet.roundId} &middot; ${bet.durationMin} min</span>
+        </div>
+        ${timerHtml}
+      </div>`;
+  }).join('');
+}
+
+function formatTime(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return m > 0 ? `${m}:${s.toString().padStart(2, '0')}` : `${s}s`;
+}
+
+// --- Wallet & contract ---
+
+async function connect() {
+  if (!window.ethereum) {
+    alert("MetaMask not found! Please install it.");
+    return;
+  }
+  try {
+    provider = new ethers.providers.Web3Provider(window.ethereum);
+    await provider.send("eth_requestAccounts", []);
+    signer = provider.getSigner();
+    user = await signer.getAddress();
+    contract = new ethers.Contract(contractAddress, abi, signer);
+    document.getElementById("wallet").innerText = user.slice(0, 6) + "..." + user.slice(-4);
+
+    document.getElementById("btnUp").disabled = false;
+    document.getElementById("btnDown").disabled = false;
+    document.getElementById("btnClaim").disabled = false;
+
+    loadData();
+  } catch (e) {
+    alert("Connection error: " + e.message);
+  }
+}
+
+async function loadData() {
+  if (!contract) return;
+  try {
+    const roundId = await contract.currentRound();
+    document.getElementById("round").innerText = roundId.toString();
+
+    const pool = await contract.pools(roundId, ethers.constants.AddressZero);
+    const up = parseFloat(ethers.utils.formatEther(pool[0]));
+    const down = parseFloat(ethers.utils.formatEther(pool[1]));
+
+    document.getElementById("upPool").innerText = up.toFixed(4) + " ETH";
+    document.getElementById("downPool").innerText = down.toFixed(4) + " ETH";
+
+    const total = up + down;
+    const prob = total > 0 ? (up / total * 100).toFixed(1) : "0";
+    document.getElementById("probUp").innerText = prob + "%";
+
+    const round = await contract.rounds(roundId);
+    startRoundTimer(round[1].toNumber());
+  } catch (e) {
+    console.error("loadData error:", e);
+  }
+}
+
+function startRoundTimer(endTime) {
+  if (roundTimerInterval) clearInterval(roundTimerInterval);
+  roundTimerInterval = setInterval(() => {
+    const now = Math.floor(Date.now() / 1000);
+    const left = endTime - now;
+    document.getElementById("timeLeft").innerText = left > 0 ? left + " sec" : "Ended";
+    if (left <= 0) {
+      clearInterval(roundTimerInterval);
+      roundTimerInterval = null;
+    }
+  }, 1000);
+}
+
+async function betUp() {
+  if (!checkConnected()) return;
+  const amount = document.getElementById("amount").value;
+  if (!amount || parseFloat(amount) <= 0) { alert("Enter a valid amount"); return; }
+  try {
+    const roundId = await contract.currentRound();
+    const tx = await contract.betUp({ value: ethers.utils.parseEther(amount) });
+    await tx.wait();
+    addActiveBet('UP', amount, selectedDuration, roundId);
+    loadData();
+  } catch (e) {
+    alert("Bet UP failed: " + (e.reason || e.message));
+  }
+}
+
+async function betDown() {
+  if (!checkConnected()) return;
+  const amount = document.getElementById("amount").value;
+  if (!amount || parseFloat(amount) <= 0) { alert("Enter a valid amount"); return; }
+  try {
+    const roundId = await contract.currentRound();
+    const tx = await contract.betDown({ value: ethers.utils.parseEther(amount) });
+    await tx.wait();
+    addActiveBet('DOWN', amount, selectedDuration, roundId);
+    loadData();
+  } catch (e) {
+    alert("Bet DOWN failed: " + (e.reason || e.message));
+  }
+}
+
+async function claim() {
+  if (!checkConnected()) return;
+  try {
+    const roundId = await contract.currentRound();
+    const prevRound = roundId.sub(1);
+    const tx = await contract.claim(prevRound, user);
+    await tx.wait();
+    activeBets = activeBets.filter(b => b.endTime > Math.floor(Date.now() / 1000));
+    renderBets();
+    alert("Claimed!");
+  } catch (e) {
+    alert("Claim failed: " + (e.reason || e.message));
+  }
+}
+
+function checkConnected() {
+  if (!user || !contract) {
+    alert("Please connect your wallet first");
+    return false;
+  }
+  return true;
+}
+
+new TradingView.widget({
+  "container_id": "tv_chart",
+  "symbol": "BINANCE:BTCUSDT",
+  "interval": "5",
+  "theme": "dark",
+  "width": "100%",
+  "height": "400"
+});
+
+</script>
+</body>
+</html>
+```
