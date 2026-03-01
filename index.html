@@ -594,27 +594,53 @@ async function autoSettle() {
 }
 
 // ── Price fetching ───────────────────────────────────────────────────────────
+// CoinGecko IDs per coin
+const CG_IDS = {
+  BTC: 'bitcoin', ETH: 'ethereum', BNB: 'binancecoin',
+  SOL: 'solana',  XRP: 'ripple'
+};
+
 async function fetchCoinPrice(coin) {
   const cfg = COINS[coin];
-  // Try cache first (from WS)
-  if (priceCache[coin] && priceCache[coin].raw > 0) return Math.round(priceCache[coin].raw);
-  // Fallback REST
-  const sources = [
-    async () => {
-      const r = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${cfg.binance}`);
-      const d = await r.json(); return Math.round(parseFloat(d.price));
-    },
-    async () => {
-      const r = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${cfg.binance.replace('USDT','').toLowerCase()}&vs_currencies=usd`);
-      const d = await r.json();
-      const key = Object.keys(d)[0];
-      return Math.round(d[key].usd);
-    }
-  ];
-  for (const src of sources) {
-    try { const p = await src(); if (p > 0) return p; } catch(e) {}
+
+  // 1. Try WebSocket cache first (instant, no network call)
+  if (priceCache[coin] && priceCache[coin].raw > 0) {
+    return Math.round(priceCache[coin].raw);
   }
-  throw new Error('All price sources failed');
+
+  // 2. Binance REST
+  try {
+    const r = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${cfg.binance}`);
+    if (r.ok) {
+      const d = await r.json();
+      const p = Math.round(parseFloat(d.price));
+      if (p > 0) return p;
+    }
+  } catch(e) { console.warn('Binance REST failed:', e.message); }
+
+  // 3. Coinbase REST
+  const cbSymbol = coin === 'BNB' ? 'BNB' : coin;
+  try {
+    const r = await fetch(`https://api.coinbase.com/v2/prices/${cbSymbol}-USD/spot`);
+    if (r.ok) {
+      const d = await r.json();
+      const p = Math.round(parseFloat(d.data.amount));
+      if (p > 0) return p;
+    }
+  } catch(e) { console.warn('Coinbase REST failed:', e.message); }
+
+  // 4. CoinGecko REST (with correct IDs)
+  try {
+    const cgId = CG_IDS[coin];
+    const r = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${cgId}&vs_currencies=usd`);
+    if (r.ok) {
+      const d = await r.json();
+      const p = Math.round(d[cgId].usd);
+      if (p > 0) return p;
+    }
+  } catch(e) { console.warn('CoinGecko REST failed:', e.message); }
+
+  throw new Error('All price sources failed for ' + coin);
 }
 
 // ── WebSocket prices ─────────────────────────────────────────────────────────
