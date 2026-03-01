@@ -48,14 +48,27 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
 
 /* Layout */
 .body-layout{display:grid;grid-template-columns:1fr 420px;flex:1;overflow:hidden;min-height:0;}
-.chart-col{display:flex;flex-direction:column;border-right:1px solid var(--border);overflow:hidden;}
-.chart-header{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:rgba(10,10,10,0.7);border-bottom:1px solid var(--border);flex-shrink:0;}
+.chart-col{display:flex;flex-direction:column;border-right:1px solid var(--border);overflow:hidden;position:relative;}
+.chart-header{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:rgba(10,10,10,0.85);border-bottom:1px solid rgba(213,253,81,0.15);flex-shrink:0;backdrop-filter:blur(8px);z-index:2;}
 .chart-coin-name{font-family:'Syne',sans-serif;font-size:16px;font-weight:800;display:flex;align-items:center;gap:8px;}
 .chart-price{font-size:22px;font-family:'Syne',sans-serif;font-weight:800;color:var(--neon);}
 .chart-change{font-size:12px;padding:2px 8px;border-radius:4px;}
 .chart-change.pos{background:var(--up-dim);color:var(--up);}
 .chart-change.neg{background:var(--down-dim);color:var(--down);}
-#tv_chart{flex:1;min-height:0;}
+/* Chart container: graff bg visible around/behind the iframe */
+.chart-wrap{flex:1;min-height:0;position:relative;}
+#tv_chart{width:100%;height:100%;}
+/* Neon corner accents */
+.chart-wrap::before,.chart-wrap::after{content:'';position:absolute;width:60px;height:60px;z-index:3;pointer-events:none;}
+.chart-wrap::before{top:0;left:0;border-top:2px solid var(--neon);border-left:2px solid var(--neon);opacity:0.6;}
+.chart-wrap::after{bottom:0;right:0;border-bottom:2px solid var(--neon);border-right:2px solid var(--neon);opacity:0.6;}
+/* Inner corner accents via extra divs */
+.chart-corner-tr{position:absolute;top:0;right:0;width:60px;height:60px;border-top:2px solid var(--neon);border-right:2px solid var(--neon);opacity:0.6;z-index:3;pointer-events:none;}
+.chart-corner-bl{position:absolute;bottom:0;left:0;width:60px;height:60px;border-bottom:2px solid var(--neon);border-left:2px solid var(--neon);opacity:0.6;z-index:3;pointer-events:none;}
+/* Subtle neon glow on chart edges */
+.chart-wrap-inner{position:absolute;inset:0;box-shadow:inset 0 0 40px rgba(213,253,81,0.04),inset 0 0 1px rgba(213,253,81,0.2);pointer-events:none;z-index:2;}
+/* Scanline overlay for graffiti feel */
+.chart-scanlines{position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.03) 2px,rgba(0,0,0,0.03) 4px);pointer-events:none;z-index:2;}
 
 /* Right column */
 .bet-col{display:flex;flex-direction:column;overflow-y:auto;background:rgba(10,10,10,0.6);backdrop-filter:blur(8px);}
@@ -104,6 +117,13 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
 .btn-settle{width:100%;padding:11px;background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);border-radius:8px;color:#fbbf24;font-family:'DM Mono',monospace;font-size:12px;cursor:pointer;transition:all 0.2s;margin-bottom:8px;display:none;}
 .btn-settle:hover:not(:disabled){background:#fbbf24;color:var(--black);}
 .btn-settle:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-new-round{width:100%;padding:11px;background:var(--neon-dim);border:1px solid rgba(213,253,81,0.3);border-radius:8px;color:var(--neon);font-family:'DM Mono',monospace;font-size:12px;cursor:pointer;transition:all 0.2s;margin-bottom:8px;display:none;}
+.btn-new-round:hover{background:var(--neon);color:var(--black);}
+.payout-banner{display:none;padding:12px 14px;border-radius:8px;margin-top:10px;text-align:center;font-family:'Syne',sans-serif;font-weight:700;font-size:15px;letter-spacing:0.5px;animation:fadeUp 0.4s ease;}
+.payout-banner.win{background:rgba(74,222,128,0.12);border:1px solid rgba(74,222,128,0.4);color:var(--up);}
+.payout-banner.lose{background:rgba(248,113,113,0.10);border:1px solid rgba(248,113,113,0.3);color:var(--down);}
+.payout-banner.show{display:block;}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
 
 /* Active bets history */
 .bets-section{padding:14px 16px;border-bottom:1px solid var(--border);}
@@ -198,7 +218,13 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
           <div class="chart-change pos" id="chartChange">—</div>
         </div>
       </div>
-      <div id="tv_chart"></div>
+      <div class="chart-wrap">
+        <div id="tv_chart"></div>
+        <div class="chart-corner-tr"></div>
+        <div class="chart-corner-bl"></div>
+        <div class="chart-wrap-inner"></div>
+        <div class="chart-scanlines"></div>
+      </div>
     </div>
 
     <div class="bet-col">
@@ -247,6 +273,8 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
         </div>
         <div id="betHint"></div>
         <button class="btn-settle" id="btnSettle" onclick="settle()">⏱ Settle Round</button>
+        <div class="payout-banner" id="payoutBanner"></div>
+        <button class="btn-new-round" id="btnNewRound" onclick="startNewRound()">▶ Start New Round</button>
       </div>
 
       <div class="bets-section" id="betsSection" style="display:none;">
@@ -341,9 +369,26 @@ function selectCoin(coin, el) {
   }
   document.getElementById('tv_chart').innerHTML = '';
   tvWidget = new TradingView.widget({
-    container_id:'tv_chart', symbol:cfg.symbol, interval:'1',
-    theme:'dark', width:'100%', height:'100%', autosize:true,
-    hide_side_toolbar:true, allow_symbol_change:false,
+    container_id: 'tv_chart',
+    symbol: cfg.symbol,
+    interval: '1',
+    theme: 'dark',
+    width: '100%',
+    height: '100%',
+    autosize: true,
+    hide_side_toolbar: true,
+    allow_symbol_change: false,
+    toolbar_bg: '#0a0a0a',
+    overrides: {
+      "paneProperties.background": "#0d0f0a",
+      "paneProperties.backgroundType": "solid",
+      "paneProperties.vertGridProperties.color": "rgba(213,253,81,0.04)",
+      "paneProperties.horzGridProperties.color": "rgba(213,253,81,0.04)",
+      "scalesProperties.textColor": "#666666",
+      "scalesProperties.backgroundColor": "#0a0a0a",
+      "scalesProperties.lineColor": "#2a2a2a",
+    },
+    loading_screen: { backgroundColor: "#0d0f0a", foregroundColor: "#d5fd51" },
   });
 }
 
@@ -412,6 +457,8 @@ function disconnect() {
   document.getElementById('ownerPanel').style.display = 'none';
   document.getElementById('betsSection').style.display = 'none';
   setStatus('—', 'waiting');
+  document.getElementById('payoutBanner').className = 'payout-banner';
+  document.getElementById('btnNewRound').style.display = 'none';
   updateBetButtons();
 }
 
@@ -457,12 +504,29 @@ async function loadPlayerRound() {
       setStatus('Settled', 'waiting');
       document.getElementById('timeLeftSmall').innerText = '—';
       if (roundTimerInterval) { clearInterval(roundTimerInterval); roundTimerInterval = null; }
-      if (closePrice > 0) {
+      if (closePrice > 0 && direction !== 0) {
         const won = (upWon && direction === 1) || (!upWon && direction === 2);
         banner.className = 'result-banner show ' + (upWon ? 'up-won' : 'down-won');
         banner.innerHTML = upWon
           ? `▲ UP WON · Close $${closePrice.toLocaleString()}`
           : `▼ DOWN WON · Close $${closePrice.toLocaleString()}`;
+
+        // Show payout banner
+        const payoutBanner = document.getElementById('payoutBanner');
+        const betAmt = parseFloat(ethers.utils.formatEther(betAmount));
+        if (won) {
+          const profit    = betAmt * 0.10;
+          const fee       = profit * 0.03;
+          const netPayout = betAmt + profit - fee;
+          payoutBanner.className = 'payout-banner win show';
+          payoutBanner.innerHTML = `💰 Won! +${(profit - fee).toFixed(5)} ETH<br><span style="font-size:11px;font-weight:400;opacity:0.8;">Payout ${netPayout.toFixed(5)} ETH sent to your wallet</span>`;
+        } else {
+          payoutBanner.className = 'payout-banner lose show';
+          payoutBanner.innerHTML = `❌ Lost · ${betAmt.toFixed(5)} ETH<br><span style="font-size:11px;font-weight:400;opacity:0.8;">Better luck next round!</span>`;
+        }
+
+        // Show new round button
+        document.getElementById('btnNewRound').style.display = 'block';
       }
     }
 
@@ -509,6 +573,17 @@ function startRoundTimer(endTime) {
 }
 
 // ── Bet buttons state ───────────────────────────────────────────────────────
+function startNewRound() {
+  // Reset UI for a fresh round
+  document.getElementById('payoutBanner').className = 'payout-banner';
+  document.getElementById('btnNewRound').style.display = 'none';
+  document.getElementById('resultBanner').className = 'result-banner';
+  playerRoundStatus = 0;
+  hasBetThisRound = false;
+  setStatus('Ready', 'waiting');
+  updateBetButtons();
+}
+
 function updateBetButtons() {
   const connected = !!user && !!contract;
   // Can bet: connected + round is ACTIVE + no bet placed yet
