@@ -270,33 +270,33 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
       </div>
       <a href="https://faucet.testnet.chain.robinhood.com/?error=undefined&address=0x6d4D522f22681b76483BF327ff7Bb6748a68Da5c&step=auth" target="_blank" class="btn-faucet">💧 Faucet</a>
       <div class="chain-badge">Robinhood Chain · 46630</div>
-      <button class="btn-connect" id="btnConnect" onclick="window.connectWallet()">Connect Wallet</button>
-      <button class="btn-disconnect" id="btnDisconnect" onclick="window.disconnectWallet()" title="Disconnect">✕</button>
+      <button class="btn-connect" id="btnConnect" onclick="connect()">Connect Wallet</button>
+      <button class="btn-disconnect" id="btnDisconnect" onclick="disconnect()" title="Disconnect">✕</button>
     </div>
   </header>
 
   <div class="coin-tabs">
-    <div class="coin-tab active" onclick="window.selectCoin('BTC',this)">
+    <div class="coin-tab active" onclick="selectCoin('BTC',this)">
       <div class="coin-icon" style="background:#f7931a22;color:#f7931a;">₿</div>
       <div><div class="coin-name">Bitcoin</div><div class="coin-sym">BTC</div></div>
       <span class="coin-price-small" id="price-BTC">—</span>
     </div>
-    <div class="coin-tab" onclick="window.selectCoin('ETH',this)">
+    <div class="coin-tab" onclick="selectCoin('ETH',this)">
       <div class="coin-icon" style="background:#627eea22;color:#627eea;">Ξ</div>
       <div><div class="coin-name">Ethereum</div><div class="coin-sym">ETH</div></div>
       <span class="coin-price-small" id="price-ETH">—</span>
     </div>
-    <div class="coin-tab" onclick="window.selectCoin('BNB',this)">
+    <div class="coin-tab" onclick="selectCoin('BNB',this)">
       <div class="coin-icon" style="background:#f0b90b22;color:#f0b90b;">B</div>
       <div><div class="coin-name">BNB</div><div class="coin-sym">BNB</div></div>
       <span class="coin-price-small" id="price-BNB">—</span>
     </div>
-    <div class="coin-tab" onclick="window.selectCoin('SOL',this)">
+    <div class="coin-tab" onclick="selectCoin('SOL',this)">
       <div class="coin-icon" style="background:#9945ff22;color:#9945ff;">◎</div>
       <div><div class="coin-name">Solana</div><div class="coin-sym">SOL</div></div>
       <span class="coin-price-small" id="price-SOL">—</span>
     </div>
-    <div class="coin-tab" onclick="window.selectCoin('XRP',this)">
+    <div class="coin-tab" onclick="selectCoin('XRP',this)">
       <div class="coin-icon" style="background:#00aae422;color:#00aae4;">✕</div>
       <div><div class="coin-name">Ripple</div><div class="coin-sym">XRP</div></div>
       <span class="coin-price-small" id="price-XRP">—</span>
@@ -387,20 +387,20 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
         </div>
         <div class="dur-label">Duration</div>
         <div class="dur-group" id="durGroup">
-          <button class="dur-btn active" onclick="window.selectDuration(60,this)">1m</button>
-          <button class="dur-btn" onclick="window.selectDuration(120,this)">2m</button>
-          <button class="dur-btn" onclick="window.selectDuration(180,this)">3m</button>
-          <button class="dur-btn" onclick="window.selectDuration(240,this)">4m</button>
-          <button class="dur-btn" onclick="window.selectDuration(300,this)">5m</button>
+          <button class="dur-btn active" onclick="selectDuration(60,this)">1m</button>
+          <button class="dur-btn" onclick="selectDuration(120,this)">2m</button>
+          <button class="dur-btn" onclick="selectDuration(180,this)">3m</button>
+          <button class="dur-btn" onclick="selectDuration(240,this)">4m</button>
+          <button class="dur-btn" onclick="selectDuration(300,this)">5m</button>
         </div>
         <div class="bet-buttons">
-          <button class="btn-up"   id="btnUp"   onclick="window.betUp()"   disabled>▲ &nbsp;UP</button>
-          <button class="btn-down" id="btnDown" onclick="window.betDown()" disabled>▼ &nbsp;DOWN</button>
+          <button class="btn-up"   id="btnUp"   onclick="betUp()"   disabled>▲ &nbsp;UP</button>
+          <button class="btn-down" id="btnDown" onclick="betDown()" disabled>▼ &nbsp;DOWN</button>
         </div>
         <div id="betHint"></div>
-        <button class="btn-settle" id="btnSettle" onclick="window.settle()">⏱ Settle Round</button>
+        <button class="btn-settle" id="btnSettle" onclick="settle()">⏱ Settle Round</button>
         <div class="payout-banner" id="payoutBanner"></div>
-        <button class="btn-new-round" id="btnNewRound" onclick="window.startNewRound()">▶ Start New Round</button>
+        <button class="btn-new-round" id="btnNewRound" onclick="startNewRound()">▶ Start New Round</button>
       </div>
 
       <!-- Active bets -->
@@ -419,14 +419,14 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
         </div>
         <div class="owner-row">
           <input class="owner-input" id="depositAmount" type="number" placeholder="ETH amount" step="0.001"/>
-          <button class="btn-owner btn-deposit" onclick="window.ownerDeposit()">⬆ Deposit</button>
+          <button class="btn-owner btn-deposit" onclick="ownerDeposit()">⬆ Deposit</button>
         </div>
         <div class="owner-row">
           <input class="owner-input" id="withdrawAmount" type="number" placeholder="ETH (0=all)"/>
-          <button class="btn-owner btn-withdraw" onclick="window.ownerWithdraw()">⬇ Withdraw</button>
-          <button class="btn-owner btn-withdraw-all" onclick="window.ownerWithdrawAll()">All</button>
+          <button class="btn-owner btn-withdraw" onclick="ownerWithdraw()">⬇ Withdraw</button>
+          <button class="btn-owner btn-withdraw-all" onclick="ownerWithdrawAll()">All</button>
         </div>
-        <button class="btn-admin-xp" onclick="window.openAdminPanel()">✦ XP Admin Dashboard</button>
+        <button class="btn-admin-xp" onclick="openAdminPanel()">✦ XP Admin Dashboard</button>
       </div>
     </div>
   </div>
@@ -440,8 +440,8 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
         <div class="admin-title">XP Admin Dashboard <span>PredictionMarketV5_XP</span></div>
       </div>
       <div style="display:flex;gap:8px;">
-        <button class="btn-export" onclick="window.exportCSV()">⬇ Export CSV</button>
-        <button class="btn-close-admin" onclick="window.closeAdminPanel()">✕ Close</button>
+        <button class="btn-export" onclick="exportCSV()">⬇ Export CSV</button>
+        <button class="btn-close-admin" onclick="closeAdminPanel()">✕ Close</button>
       </div>
     </div>
 
@@ -475,7 +475,7 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
     </div>
 
     <!-- Distribute XP button -->
-    <button class="btn-distribute-xp" id="btnDistributeXp" onclick="window.distributeXp()">
+    <button class="btn-distribute-xp" id="btnDistributeXp" onclick="distributeXp()">
       ✦ Distribute XP for Current Epoch
     </button>
 
@@ -507,7 +507,7 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
     <div class="players-table-wrap">
       <div class="players-table-header">
         <div class="players-table-title">All Players · XP Balances</div>
-        <input class="players-search" id="playersSearch" type="text" placeholder="Search by address..." oninput="window.filterPlayers()"/>
+        <input class="players-search" id="playersSearch" type="text" placeholder="Search by address..." oninput="filterPlayers()"/>
       </div>
       <div id="playersTableBody">
         <div class="table-loading">Connect wallet as owner to load player data</div>
@@ -515,8 +515,8 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
       <div class="table-pagination" id="tablePagination" style="display:none;">
         <div class="page-info" id="pageInfo">—</div>
         <div class="page-btns">
-          <button class="btn-page" id="btnPrev" onclick="window.changePage(-1)">← Prev</button>
-          <button class="btn-page" id="btnNext" onclick="window.changePage(1)">Next →</button>
+          <button class="btn-page" id="btnPrev" onclick="changePage(-1)">← Prev</button>
+          <button class="btn-page" id="btnNext" onclick="changePage(1)">Next →</button>
         </div>
       </div>
     </div>
@@ -524,6 +524,8 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
 </div>
 
 <script>
+// Make all functions available globally before DOM parses
+
 // ══════════════════════════════════════════════════════
 // CONTRACT CONFIG — новый адрес V5_XP
 // ══════════════════════════════════════════════════════
@@ -720,7 +722,7 @@ function disconnect() {
 
   document.getElementById('btnConnect').innerText = 'Connect Wallet';
   document.getElementById('btnConnect').classList.remove('connected');
-  document.getElementById('btnConnect').onclick = window.connectWallet;
+  document.getElementById('btnConnect').onclick = connect;
   document.getElementById('btnDisconnect').style.display = 'none';
   document.getElementById('wallet').innerText = 'Not connected';
   document.getElementById('round').innerText = '—';
@@ -1487,26 +1489,7 @@ tvWidget = new TradingView.widget({
 });
 startPriceWebSocket();
 
-// Expose ALL functions globally for onclick handlers
-window.connectWallet = connect;
-window.disconnectWallet = disconnect;
-window.selectCoin = selectCoin;
-window.selectDuration = selectDuration;
-window.betUp = betUp;
-window.betDown = betDown;
-window.settle = settle;
-window.startNewRound = startNewRound;
-window.playerStartRound = playerStartRound;
-window.ownerDeposit = ownerDeposit;
-window.ownerWithdraw = ownerWithdraw;
-window.ownerWithdrawAll = ownerWithdrawAll;
-window.ownerSetDuration = ownerSetDuration;
-window.openAdminPanel = openAdminPanel;
-window.closeAdminPanel = closeAdminPanel;
-window.distributeXp = distributeXp;
-window.exportCSV = exportCSV;
-window.filterPlayers = filterPlayers;
-window.changePage = changePage;
+
 
 // ── Graffiti background ───────────────────────────────
 (function() {
@@ -1615,6 +1598,27 @@ window.changePage = changePage;
   document.fonts.ready.then(resize);
   resize();
 })();
-</script>
+
+// Expose to global scope for inline onclick handlers
+window.connect = connect;
+window.disconnect = disconnect;
+window.selectCoin = selectCoin;
+window.selectDuration = selectDuration;
+window.betUp = betUp;
+window.betDown = betDown;
+window.settle = settle;
+window.startNewRound = startNewRound;
+window.playerStartRound = playerStartRound;
+window.ownerDeposit = ownerDeposit;
+window.ownerWithdraw = ownerWithdraw;
+window.ownerWithdrawAll = ownerWithdrawAll;
+window.ownerSetDuration = ownerSetDuration;
+window.openAdminPanel = openAdminPanel;
+window.closeAdminPanel = closeAdminPanel;
+window.distributeXp = distributeXp;
+window.exportCSV = exportCSV;
+window.filterPlayers = filterPlayers;
+window.changePage = changePage;
+>
 </body>
 </html>
