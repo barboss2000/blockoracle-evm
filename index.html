@@ -386,12 +386,12 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
           <span class="amount-suffix">ETH</span>
         </div>
         <div class="dur-label">Duration</div>
-        <div class="dur-group">
-          <button class="dur-btn active" onclick="selectDuration(1,this)">1m</button>
-          <button class="dur-btn" onclick="selectDuration(2,this)">2m</button>
-          <button class="dur-btn" onclick="selectDuration(3,this)">3m</button>
-          <button class="dur-btn" onclick="selectDuration(4,this)">4m</button>
-          <button class="dur-btn" onclick="selectDuration(5,this)">5m</button>
+        <div class="dur-group" id="durGroup">
+          <button class="dur-btn active" onclick="selectDuration(60,this)">1m</button>
+          <button class="dur-btn" onclick="selectDuration(120,this)">2m</button>
+          <button class="dur-btn" onclick="selectDuration(180,this)">3m</button>
+          <button class="dur-btn" onclick="selectDuration(240,this)">4m</button>
+          <button class="dur-btn" onclick="selectDuration(300,this)">5m</button>
         </div>
         <div class="bet-buttons">
           <button class="btn-up"   id="btnUp"   onclick="betUp()"   disabled>▲ &nbsp;UP</button>
@@ -527,7 +527,7 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
 // ══════════════════════════════════════════════════════
 // CONTRACT CONFIG — новый адрес V5_XP
 // ══════════════════════════════════════════════════════
-const CONTRACT_ADDRESS = "0x210EF92898402913Ac1609c131dd6FED2F3e6310";
+const CONTRACT_ADDRESS = "0x73897BD04879a5C754bB9aFDf5daE64e14416eBc";
 const CHAIN_ID = 46630;
 const CHAIN_CONFIG = {
   chainId: '0x' + CHAIN_ID.toString(16),
@@ -539,21 +539,27 @@ const CHAIN_CONFIG = {
 
 // ABI: оригинальные функции V5 + новые XP функции
 const abi = [
-  // V5 original
+  // PredictionMarketV5_XP — ETH bets
   "function betUp() payable",
   "function betDown() payable",
-  "function betUpToken(address,uint256)",
-  "function betDownToken(address,uint256)",
-  "function settle(uint256)",
-  "function claim(uint256,address)",
+  // Start round (any player)
+  "function startRound(uint256) external",
+  // Settle (owner only)
+  "function settle(uint256) external",
+  // Claim winnings
+  "function claim(uint256,address) external",
+  // View
   "function owner() view returns(address)",
   "function currentRound() view returns(uint256)",
+  "function roundDuration() view returns(uint256)",
+  "function platformFee() view returns(uint256)",
   "function rounds(uint256) view returns(uint256,uint256,uint256,uint256,bool,bool)",
   "function pools(uint256,address) view returns(uint256,uint256)",
   "function upBets(uint256,address,address) view returns(uint256)",
   "function downBets(uint256,address,address) view returns(uint256)",
-  "function setRoundDuration(uint256)",
-  "function setPlatformFee(uint256)",
+  // Admin
+  "function setRoundDuration(uint256) external",
+  "function setPlatformFee(uint256) external",
   // XP system
   "function xpBalance(address) view returns(uint256)",
   "function xpGiven() view returns(uint256)",
@@ -563,13 +569,12 @@ const abi = [
   "function playerCount() view returns(uint256)",
   "function getPlayersWithXp(uint256,uint256) view returns(address[],uint256[])",
   "function xpInfo() view returns(uint256,uint256,uint256)",
-  "function distributeXp()",
-  "function players(uint256) view returns(address)"
+  "function distributeXp() external"
 ];
 
 let provider, signer, contract, user, contractOwner;
 let roundTimerInterval = null;
-let selectedDuration = 1;
+let selectedDuration = 60; // seconds
 let selectedCoin = 'BTC';
 let activeBets = [];
 let betsRenderInterval = null;
@@ -789,17 +794,35 @@ function startXpCountdown(nextDropTs) {
 async function loadPlayerRound() {
   if (!contract || !user) return;
   try {
-    const roundId = (await contract.currentRound()).toNumber();
-    if (roundId === 0) {
-      setStatus('Waiting', 'waiting');
-      document.getElementById('round').innerText = '—';
-      document.getElementById('lockPrice').innerText = '—';
-      document.getElementById('timeLeftSmall').innerText = '—';
-      document.getElementById('betHint').innerText = 'Waiting for owner to start first round';
-      document.getElementById('betHint').style.color = 'var(--text-muted)';
-      updateBetButtons();
-      return;
-    }
+    // V6: each player has their own round
+    const r = await contract.getPlayerRound(user);
+    // r: [roundId, asset, startTime, endTime, startPrice, endPrice, betAmount, direction, status, outcome]
+    const roundId    = r[0].toNumber();
+    const asset      = r[1];
+    const startTime  = r[2].toNumber();
+    const endTime    = r[3].toNumber();
+    const startPrice = r[4].toNumber();
+    const endPrice   = r[5].toNumber();
+    const betAmount  = r[6];
+    const direction  = r[7]; // 1=UP, 2=DOWN
+    const status     = r[8]; // 0=EMPTY, 1=ACTIVE, 2=SETTLED
+    const outcome    = r[9];
+    const now        = Math.floor(Date.now() / 1000);
+
+    // Compatibility vars
+    const settled = status === 2;
+    playerRoundStatus = status;
+    hasBetThisRound = status === 1 || status === 2;
+    if (status === 1) playerBetRoundId = roundId;
+
+    contractRoundEndTime = endTime;
+
+    document.getElementById('round').innerText = roundId > 0 ? '#' + roundId : '—';
+
+    // Show live selected coin price
+    updateLivePriceDisplay();
+
+    const settleBtn = document.getElementById('btnSettle');
 
     const r = await contract.rounds(roundId);
     const startTime  = r[0].toNumber();
@@ -936,25 +959,40 @@ function startRoundTimer(endTime) {
   }, 1000);
 }
 
-function startNewRound() {
-  // Reset UI state — new round will be started by owner via settle()
+async function startNewRound() {
   document.getElementById('payoutBanner').className = 'payout-banner';
   document.getElementById('btnNewRound').style.display = 'none';
   document.getElementById('resultBanner').className = 'result-banner';
   hasBetThisRound = false;
   playerBetRoundId = 0;
+  playerRoundStatus = 3;
   activeBets = [];
   renderBets();
-  // Reload round state from chain
+  updateBetButtons();
   loadPlayerRound();
 }
 
 function updateBetButtons() {
   const connected = !!user && !!contract;
-  // Can only bet when round is ACTIVE (status=1) and haven't bet yet
   const canBet = connected && playerRoundStatus === 1 && !hasBetThisRound;
+  const canStart = connected && (playerRoundStatus === 0 || playerRoundStatus === 3);
+
   document.getElementById('btnUp').disabled   = !canBet;
   document.getElementById('btnDown').disabled = !canBet;
+
+  // Show/hide Start Round button
+  const startBtn = document.getElementById('btnStartRound');
+  if (startBtn) {
+    startBtn.style.display = canStart ? 'block' : 'none';
+  }
+
+  // Show/hide duration selector — only relevant before round starts
+  const durGroup = document.getElementById('durGroup');
+  if (durGroup) {
+    durGroup.style.opacity = canStart ? '1' : '0.4';
+    durGroup.style.pointerEvents = canStart ? 'auto' : 'none';
+  }
+
   const hint = document.getElementById('betHint');
   if (!connected) {
     hint.innerText = '';
@@ -965,18 +1003,53 @@ function updateBetButtons() {
     hint.innerText = 'Round is active — place your bet!';
     hint.style.color = 'var(--neon)';
   } else if (playerRoundStatus === 2) {
-    hint.innerText = 'Round ended — waiting for settlement';
+    hint.innerText = 'Round ended — waiting for owner to settle';
     hint.style.color = 'var(--text-muted)';
-  } else if (playerRoundStatus === 3) {
-    hint.innerText = 'Round settled — new round starting soon';
-    hint.style.color = 'var(--text-muted)';
+  } else if (playerRoundStatus === 0 || playerRoundStatus === 3) {
+    hint.innerText = 'Choose duration and start a round';
+    hint.style.color = 'var(--neon)';
   } else {
-    hint.innerText = 'Waiting for owner to start a round';
-    hint.style.color = 'var(--text-muted)';
+    hint.innerText = '';
   }
 }
 
 // ── Betting ──────────────────────────────────────────
+// ── Start Round (any player) ─────────────────────────
+async function playerStartRound() {
+  if (!checkConnected()) return;
+  const btn = document.getElementById('btnStartRound');
+  btn.disabled = true;
+  btn.innerText = '⏳ Starting...';
+  try {
+    const price = await fetchCoinPrice(selectedCoin);
+    // Set round duration on contract if it differs from selected
+    const currentDur = await contract.roundDuration();
+    if (currentDur.toNumber() !== selectedDuration) {
+      try {
+        const txDur = await contract.setRoundDuration(selectedDuration);
+        await txDur.wait();
+      } catch(e) {
+        // Not owner — can't set duration, proceed with existing
+      }
+    }
+    const tx = await contract.startRound(price);
+    await tx.wait();
+    btn.style.display = 'none';
+    btn.disabled = false;
+    btn.innerText = '▶ Start Round';
+    await loadPlayerRound();
+  } catch(e) {
+    const msg = e.reason || e.message || '';
+    if (msg.includes('Round still active')) {
+      alert('A round is already active!');
+    } else {
+      alert('Failed to start round: ' + msg);
+    }
+    btn.disabled = false;
+    btn.innerText = '▶ Start Round';
+  }
+}
+
 async function betUp()   { await _bet('UP'); }
 async function betDown() { await _bet('DOWN'); }
 
@@ -988,27 +1061,32 @@ async function _bet(direction) {
   document.getElementById('btnDown').disabled = true;
   try {
     const val = ethers.utils.parseEther(amount);
-    // Get lock price for display
+    // Get current coin price
     let coinLockPrice = 0;
     try { coinLockPrice = await fetchCoinPrice(selectedCoin); } catch(e) {}
-    // Place bet — contract manages rounds automatically
+    if (!coinLockPrice || coinLockPrice <= 0) {
+      alert('Could not fetch price. Try again.');
+      updateBetButtons(); return;
+    }
+    // V6: betUp(duration, price, asset) / betDown(duration, price, asset)
     const tx = direction === 'UP'
-      ? await contract.betUp({ value: val })
-      : await contract.betDown({ value: val });
+      ? await contract.betUp(selectedDuration, coinLockPrice, selectedCoin, { value: val })
+      : await contract.betDown(selectedDuration, coinLockPrice, selectedCoin, { value: val });
     await tx.wait();
     hasBetThisRound = true;
     document.getElementById('timeLeftSmall').innerText = '—';
-    try {
-      const rid = (await contract.currentRound()).toNumber();
-      playerBetRoundId = rid;
-    } catch(e) {}
+    contractRoundEndTime = Math.floor(Date.now() / 1000) + selectedDuration;
     addActiveBet(direction, amount, coinLockPrice);
     await loadPlayerRound();
     await loadUserXp();
   } catch(e) {
     const msg = e.reason || e.message || '';
-    if (msg.includes('Round ended') || msg.includes('ended')) {
-      alert('Round has ended. Waiting for owner to settle and start next round.');
+    if (msg.includes('already active')) {
+      alert('You already have an active round. Wait for it to end and settle first.');
+    } else if (msg.includes('Insufficient liquidity')) {
+      alert('Contract has insufficient liquidity. Contact the owner.');
+    } else if (msg.includes('Invalid duration')) {
+      alert('Invalid duration selected.');
     } else {
       alert('Bet failed: ' + msg);
     }
@@ -1020,7 +1098,13 @@ async function settle() {
   if (!checkConnected()) return;
   document.getElementById('btnSettle').disabled = true;
   try {
-    const closePrice = await fetchCoinPrice(selectedCoin);
+    // V6: get asset from player's round, fetch that asset's price
+    let asset = selectedCoin;
+    try {
+      const r = await contract.getPlayerRound(user);
+      if (r[1] && r[1].length > 0) asset = r[1];
+    } catch(e) {}
+    const closePrice = await fetchCoinPrice(asset);
     const tx = await contract.settle(closePrice);
     await tx.wait();
     document.getElementById('btnSettle').style.display = 'none';
@@ -1032,12 +1116,15 @@ async function settle() {
 }
 
 async function autoSettle() {
+  // V6: owner uses settleFor(player, price) — but in V6 player settles themselves
+  // Auto-settle is just a helper if owner wants to help
   try {
-    const closePrice = await fetchCoinPrice(selectedCoin);
+    const r = await contract.getPlayerRound(user);
+    const asset = r[1] || selectedCoin;
+    const closePrice = await fetchCoinPrice(asset || selectedCoin);
     const tx = await contract.settle(closePrice);
     await tx.wait();
     document.getElementById('btnSettle').style.display = 'none';
-    document.getElementById('btnNewRound').style.display = 'block';
     await loadPlayerRound();
   } catch(e) { console.error('Auto-settle:', e.message); }
 }
@@ -1133,10 +1220,10 @@ function formatTime(s) {
 async function loadOwnerStats() {
   if (!contract || !user) return;
   try {
-    const bal = await provider.getBalance(CONTRACT_ADDRESS);
-    document.getElementById('ownerBalContract').innerText  = parseFloat(ethers.utils.formatEther(bal)).toFixed(4) + ' ETH';
+    const info = await contract.balanceInfo();
+    document.getElementById('ownerBalContract').innerText  = parseFloat(ethers.utils.formatEther(info[0])).toFixed(4) + ' ETH';
     document.getElementById('ownerBalProfit').innerText    = '—';
-    document.getElementById('ownerBalLiquidity').innerText = '—';
+    document.getElementById('ownerBalLiquidity').innerText = parseFloat(ethers.utils.formatEther(info[1])).toFixed(4) + ' ETH';
   } catch(e) {}
 }
 
@@ -1144,7 +1231,7 @@ async function ownerDeposit() {
   const amount = document.getElementById('depositAmount').value;
   if (!amount) { alert('Enter amount'); return; }
   try {
-    const tx = await signer.sendTransaction({ to: CONTRACT_ADDRESS, value: ethers.utils.parseEther(amount) });
+    const tx = await contract.depositLiquidity({ value: ethers.utils.parseEther(amount) });
     await tx.wait();
     document.getElementById('depositAmount').value = '';
     await loadOwnerStats(); alert('Deposited ✓');
@@ -1152,12 +1239,24 @@ async function ownerDeposit() {
 }
 
 async function ownerWithdraw() {
-  alert('Use contract claim() function for withdrawals');
+  const input = document.getElementById('withdrawAmount').value;
+  const amount = (!input || parseFloat(input) === 0) ? 0 : ethers.utils.parseEther(input);
+  try {
+    const tx = await contract.withdrawLiquidity(amount);
+    await tx.wait();
+    document.getElementById('withdrawAmount').value = '';
+    await loadOwnerStats(); alert('Withdrawn ✓');
+  } catch(e) { alert('Withdraw failed: ' + (e.reason||e.message)); }
 }
 
 async function ownerWithdrawAll() {
-  alert('Use contract claim() function for withdrawals');
+  try {
+    await (await contract.withdrawLiquidity(0)).wait();
+    await loadOwnerStats(); alert('All withdrawn ✓');
+  } catch(e) { alert('Error: ' + (e.reason||e.message)); }
 }
+
+
 
 // ── ADMIN XP PANEL ─────────────────────────────────────
 async function openAdminPanel() {
@@ -1357,8 +1456,8 @@ function setStatus(text, type) {
   el.innerText = text; el.className = 'status-pill status-' + type;
 }
 
-function selectDuration(min, btn) {
-  selectedDuration = min;
+function selectDuration(sec, btn) {
+  selectedDuration = sec;
   document.querySelectorAll('.dur-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
 }
