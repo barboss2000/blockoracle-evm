@@ -863,24 +863,25 @@ async function loadPlayerRound() {
     } else {
       // Round is active on chain
       if (userHasBetInCurrentRound) {
-        // User has bet in THIS round — show countdown
+        // User has bet in THIS round — don't show "Round Ends In" timer, hide it
         playerRoundStatus = 1;
         setStatus('Active', 'active');
         settleBtn.style.display = 'none';
         document.getElementById('resultBanner').className = 'result-banner';
-        // Sync activeBets endTime with real contract endTime
+        document.getElementById('timeLeftSmall').innerText = '—';
+        // Sync activeBets endTime with real contract endTime (for My Active Bets timer)
         if (activeBets.length > 0) {
           activeBets[activeBets.length - 1].endTime = endTime;
         }
+        // Still run interval internally to detect when round ends
         startRoundTimer(endTime);
       } else {
-        // New round started, user hasn't bet yet
+        // User hasn't bet yet — show countdown so they know how long they have
         playerRoundStatus = 1;
         setStatus('Active', 'active');
         settleBtn.style.display = 'none';
         document.getElementById('resultBanner').className = 'result-banner';
         document.getElementById('btnNewRound').style.display = 'none';
-        // Show remaining time so user knows how long they have to bet
         startRoundTimer(endTime);
       }
     }
@@ -898,7 +899,12 @@ function startRoundTimer(endTime) {
   roundTimerInterval = setInterval(async () => {
     const left = endTime - Math.floor(Date.now() / 1000);
     if (left > 0) {
-      document.getElementById('timeLeftSmall').innerText = formatTime(left);
+      // Only show countdown in "Round Ends In" if user hasn't bet yet
+      if (!hasBetThisRound) {
+        document.getElementById('timeLeftSmall').innerText = formatTime(left);
+      } else {
+        document.getElementById('timeLeftSmall').innerText = '—';
+      }
     } else {
       document.getElementById('timeLeftSmall').innerText = '—';
       clearInterval(roundTimerInterval); roundTimerInterval = null;
@@ -960,6 +966,8 @@ async function _bet(direction) {
       : await contract.betDown({ value: val });
     await tx.wait();
     hasBetThisRound = true;
+    // Hide "Round Ends In" timer — bet placed, no need to show time pressure
+    document.getElementById('timeLeftSmall').innerText = '—';
     // Track which round user placed bet on
     try {
       const currentRoundId = (await contract.currentRound()).toNumber();
