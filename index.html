@@ -1,413 +1,1349 @@
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>BlockOracle — Robinhood Chain</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@700;800&display=swap" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+<script src="https://s3.tradingview.com/tv.js"></script>
+<style>
+:root {
+  --neon:#d5fd51; --neon-dim:rgba(213,253,81,0.12); --neon-dim2:rgba(213,253,81,0.06);
+  --black:#0a0a0a; --surface:#111111; --surface2:#181818; --border:#2a2a2a; --border-light:#333;
+  --text:#ffffff; --text-muted:#666; --text-dim:#444;
+  --up:#4ade80; --down:#f87171; --up-dim:rgba(74,222,128,0.10); --down-dim:rgba(248,113,113,0.10);
+  --xp:#a78bfa; --xp-dim:rgba(167,139,250,0.12);
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-height:100vh;overflow-x:hidden;}
+#graffiti-bg{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:0;}
+.page{position:relative;z-index:1;display:flex;flex-direction:column;height:100vh;}
 
-interface IERC20 {
-    function transferFrom(address from, address to, uint value) external returns (bool);
-    function transfer(address to, uint value) external returns (bool);
+/* Header */
+.header{display:flex;align-items:center;justify-content:space-between;padding:12px 24px;border-bottom:1px solid var(--border);background:rgba(10,10,10,0.96);backdrop-filter:blur(12px);z-index:100;flex-shrink:0;}
+.logo{display:flex;align-items:center;gap:10px;}
+.logo-icon{width:26px;height:26px;background:var(--neon);clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%);animation:pulse-logo 3s ease-in-out infinite;}
+@keyframes pulse-logo{0%,100%{filter:brightness(1);}50%{filter:brightness(1.3) drop-shadow(0 0 8px #d5fd51);}}
+.logo-text{font-family:'Syne',sans-serif;font-weight:800;font-size:15px;letter-spacing:-0.5px;}
+.logo-text span{color:var(--neon);}
+.header-right{display:flex;align-items:center;gap:8px;}
+.chain-badge{font-size:10px;color:var(--text-muted);border:1px solid var(--border);padding:4px 10px;border-radius:4px;letter-spacing:1px;text-transform:uppercase;}
+
+/* XP badge in header */
+.xp-badge-header{display:none;align-items:center;gap:5px;background:var(--xp-dim);border:1px solid rgba(167,139,250,0.3);padding:5px 10px;border-radius:6px;font-size:11px;color:var(--xp);}
+.xp-badge-header .xp-icon{font-size:13px;}
+
+.btn-faucet{background:transparent;color:var(--neon);border:1px solid rgba(213,253,81,0.35);padding:7px 14px;border-radius:6px;font-family:'DM Mono',monospace;font-size:11px;cursor:pointer;letter-spacing:0.5px;text-decoration:none;transition:all 0.2s;display:inline-flex;align-items:center;gap:5px;}
+.btn-faucet:hover{background:var(--neon-dim);border-color:var(--neon);}
+.btn-connect{background:var(--neon);color:var(--black);border:none;padding:7px 16px;border-radius:6px;font-family:'DM Mono',monospace;font-size:11px;font-weight:500;cursor:pointer;transition:all 0.2s;}
+.btn-connect:hover{background:#c5ed41;}
+.btn-connect.connected{background:var(--surface2);color:var(--neon);border:1px solid var(--border);cursor:default;}
+.btn-disconnect{background:transparent;color:var(--text-muted);border:1px solid var(--border);padding:7px 10px;border-radius:6px;font-family:'DM Mono',monospace;font-size:11px;cursor:pointer;transition:all 0.2s;display:none;}
+.btn-disconnect:hover{border-color:var(--down);color:var(--down);}
+
+/* Coin tabs */
+.coin-tabs{display:flex;gap:6px;padding:10px 24px;background:rgba(10,10,10,0.85);border-bottom:1px solid var(--border);flex-shrink:0;overflow-x:auto;}
+.coin-tab{display:flex;align-items:center;gap:7px;padding:7px 16px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;transition:all 0.18s;white-space:nowrap;}
+.coin-tab:hover{border-color:var(--neon);}
+.coin-tab.active{background:var(--neon-dim);border-color:var(--neon);}
+.coin-icon{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;}
+.coin-name{font-size:13px;font-weight:500;color:var(--text);}
+.coin-sym{font-size:10px;color:var(--text-muted);}
+.coin-price-small{font-size:11px;color:var(--neon);margin-left:4px;}
+
+/* Layout */
+.body-layout{display:grid;grid-template-columns:1fr 420px;flex:1;overflow:hidden;min-height:0;}
+.chart-col{display:flex;flex-direction:column;border-right:1px solid var(--border);overflow:hidden;position:relative;}
+.chart-header{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:rgba(10,10,10,0.85);border-bottom:1px solid rgba(213,253,81,0.15);flex-shrink:0;backdrop-filter:blur(8px);z-index:2;}
+.chart-coin-name{font-family:'Syne',sans-serif;font-size:16px;font-weight:800;display:flex;align-items:center;gap:8px;}
+.chart-price{font-size:22px;font-family:'Syne',sans-serif;font-weight:800;color:var(--neon);}
+.chart-change{font-size:12px;padding:2px 8px;border-radius:4px;}
+.chart-change.pos{background:var(--up-dim);color:var(--up);}
+.chart-change.neg{background:var(--down-dim);color:var(--down);}
+.chart-wrap{flex:1;min-height:0;position:relative;}
+#tv_chart{width:100%;height:100%;}
+.chart-wrap::before,.chart-wrap::after{content:'';position:absolute;width:60px;height:60px;z-index:3;pointer-events:none;}
+.chart-wrap::before{top:0;left:0;border-top:2px solid var(--neon);border-left:2px solid var(--neon);opacity:0.6;}
+.chart-wrap::after{bottom:0;right:0;border-bottom:2px solid var(--neon);border-right:2px solid var(--neon);opacity:0.6;}
+.chart-corner-tr{position:absolute;top:0;right:0;width:60px;height:60px;border-top:2px solid var(--neon);border-right:2px solid var(--neon);opacity:0.6;z-index:3;pointer-events:none;}
+.chart-corner-bl{position:absolute;bottom:0;left:0;width:60px;height:60px;border-bottom:2px solid var(--neon);border-left:2px solid var(--neon);opacity:0.6;z-index:3;pointer-events:none;}
+.chart-wrap-inner{position:absolute;inset:0;box-shadow:inset 0 0 40px rgba(213,253,81,0.04),inset 0 0 1px rgba(213,253,81,0.2);pointer-events:none;z-index:2;}
+.chart-scanlines{position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.03) 2px,rgba(0,0,0,0.03) 4px);pointer-events:none;z-index:2;}
+
+/* Right column */
+.bet-col{display:flex;flex-direction:column;overflow-y:auto;background:rgba(10,10,10,0.6);backdrop-filter:blur(8px);}
+
+/* Stats panel */
+.stats-panel{background:rgba(17,17,17,0.9);border-bottom:1px solid var(--border);padding:14px 16px;flex-shrink:0;}
+.round-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+.round-label{font-size:9px;color:var(--text-muted);letter-spacing:1.5px;text-transform:uppercase;}
+.round-num{font-size:13px;color:var(--text);margin-top:2px;}
+.status-pill{font-size:9px;font-weight:500;padding:3px 9px;border-radius:20px;letter-spacing:1px;text-transform:uppercase;}
+.status-active{background:rgba(74,222,128,0.15);color:var(--up);border:1px solid rgba(74,222,128,0.3);}
+.status-ended{background:rgba(248,113,113,0.12);color:var(--down);border:1px solid rgba(248,113,113,0.3);}
+.status-waiting{background:var(--neon-dim);color:var(--neon);border:1px solid rgba(213,253,81,0.3);}
+.stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;}
+.stat-item{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;}
+.stat-label{font-size:9px;color:var(--text-muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:3px;}
+.stat-value{font-size:13px;color:var(--text);}
+.stat-value.neon{color:var(--neon);}
+.result-banner{display:none;padding:10px 14px;border-radius:6px;margin-top:10px;text-align:center;font-family:'Syne',sans-serif;font-weight:700;font-size:13px;letter-spacing:0.5px;}
+.result-banner.up-won{background:var(--up-dim);border:1px solid rgba(74,222,128,0.3);color:var(--up);}
+.result-banner.down-won{background:var(--down-dim);border:1px solid rgba(248,113,113,0.3);color:var(--down);}
+.result-banner.show{display:block;}
+
+/* XP Panel for user */
+.xp-panel{background:rgba(17,17,17,0.9);border-bottom:1px solid rgba(167,139,250,0.2);padding:12px 16px;flex-shrink:0;display:none;}
+.xp-panel-inner{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.xp-left{display:flex;align-items:center;gap:10px;}
+.xp-orb{width:36px;height:36px;border-radius:50%;background:var(--xp-dim);border:1px solid rgba(167,139,250,0.4);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;animation:xp-pulse 3s ease-in-out infinite;}
+@keyframes xp-pulse{0%,100%{box-shadow:0 0 0 0 rgba(167,139,250,0);}50%{box-shadow:0 0 12px 3px rgba(167,139,250,0.25);}}
+.xp-label{font-size:9px;color:var(--text-muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:2px;}
+.xp-amount{font-size:18px;font-family:'Syne',sans-serif;font-weight:800;color:var(--xp);}
+.xp-rank-badge{font-size:9px;padding:2px 8px;border-radius:20px;background:var(--xp-dim);border:1px solid rgba(167,139,250,0.3);color:var(--xp);letter-spacing:1px;}
+.xp-right{text-align:right;}
+.xp-next-label{font-size:9px;color:var(--text-muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:3px;}
+.xp-countdown{font-size:12px;color:var(--xp);font-family:'Syne',sans-serif;font-weight:700;}
+.xp-weeks-left{font-size:9px;color:var(--text-muted);margin-top:2px;}
+/* XP progress bar */
+.xp-progress-wrap{margin-top:8px;}
+.xp-progress-label{display:flex;justify-content:space-between;font-size:9px;color:var(--text-muted);margin-bottom:4px;}
+.xp-progress-bar{height:3px;background:var(--border);border-radius:2px;overflow:hidden;}
+.xp-progress-fill{height:100%;background:linear-gradient(90deg,rgba(167,139,250,0.5),var(--xp));border-radius:2px;transition:width 1s ease;}
+
+/* Bet form */
+.bet-form{padding:14px 16px;border-bottom:1px solid var(--border);flex-shrink:0;}
+.section-title{font-size:9px;color:var(--text-muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:12px;}
+.amount-input-wrap{position:relative;margin-bottom:12px;}
+.amount-input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 44px 12px 14px;font-family:'DM Mono',monospace;font-size:18px;color:var(--text);outline:none;transition:border-color 0.2s;}
+.amount-input:focus{border-color:var(--neon);}
+.amount-input::placeholder{color:var(--text-dim);}
+.amount-suffix{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:11px;color:var(--text-muted);}
+.dur-label{font-size:9px;color:var(--text-muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:7px;}
+.dur-group{display:flex;gap:5px;margin-bottom:14px;}
+.dur-btn{flex:1;padding:7px 4px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text-muted);font-family:'DM Mono',monospace;font-size:11px;cursor:pointer;transition:all 0.15s;text-align:center;}
+.dur-btn:hover{border-color:var(--neon);color:var(--text);}
+.dur-btn.active{background:var(--neon-dim);border-color:var(--neon);color:var(--neon);}
+.bet-buttons{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;}
+.btn-up,.btn-down{padding:14px;border:none;border-radius:8px;font-family:'Syne',sans-serif;font-size:14px;font-weight:700;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;justify-content:center;gap:6px;}
+.btn-up{background:var(--up-dim);color:var(--up);border:1px solid rgba(74,222,128,0.3);}
+.btn-up:hover:not(:disabled){background:var(--up);color:var(--black);transform:translateY(-2px);box-shadow:0 6px 20px rgba(74,222,128,0.25);}
+.btn-up:disabled{opacity:0.3;cursor:not-allowed;}
+.btn-down{background:var(--down-dim);color:var(--down);border:1px solid rgba(248,113,113,0.3);}
+.btn-down:hover:not(:disabled){background:var(--down);color:var(--black);transform:translateY(-2px);box-shadow:0 6px 20px rgba(248,113,113,0.25);}
+.btn-down:disabled{opacity:0.3;cursor:not-allowed;}
+#betHint{text-align:center;font-size:10px;min-height:16px;margin-bottom:8px;}
+.btn-settle{width:100%;padding:11px;background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);border-radius:8px;color:#fbbf24;font-family:'DM Mono',monospace;font-size:12px;cursor:pointer;transition:all 0.2s;margin-bottom:8px;display:none;}
+.btn-settle:hover:not(:disabled){background:#fbbf24;color:var(--black);}
+.btn-settle:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-new-round{width:100%;padding:11px;background:var(--neon-dim);border:1px solid rgba(213,253,81,0.3);border-radius:8px;color:var(--neon);font-family:'DM Mono',monospace;font-size:12px;cursor:pointer;transition:all 0.2s;margin-bottom:8px;display:none;}
+.btn-new-round:hover{background:var(--neon);color:var(--black);}
+.payout-banner{display:none;padding:12px 14px;border-radius:8px;margin-top:10px;text-align:center;font-family:'Syne',sans-serif;font-weight:700;font-size:15px;letter-spacing:0.5px;animation:fadeUp 0.4s ease;}
+.payout-banner.win{background:rgba(74,222,128,0.12);border:1px solid rgba(74,222,128,0.4);color:var(--up);}
+.payout-banner.lose{background:rgba(248,113,113,0.10);border:1px solid rgba(248,113,113,0.3);color:var(--down);}
+.payout-banner.show{display:block;}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+
+/* Active bets */
+.bets-section{padding:14px 16px;border-bottom:1px solid var(--border);}
+.bets-title{font-size:9px;color:var(--text-muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:10px;}
+.bet-item{display:flex;align-items:center;gap:10px;padding:9px 11px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;margin-bottom:5px;}
+.bet-dir-badge{font-size:9px;font-weight:600;padding:2px 7px;border-radius:4px;letter-spacing:1px;min-width:40px;text-align:center;}
+.bet-dir-badge.up{background:var(--up-dim);color:var(--up);border:1px solid rgba(74,222,128,0.2);}
+.bet-dir-badge.down{background:var(--down-dim);color:var(--down);border:1px solid rgba(248,113,113,0.2);}
+.bet-info{flex:1;}
+.bet-amount{font-size:12px;color:var(--text);}
+.bet-meta{font-size:9px;color:var(--text-muted);margin-top:1px;}
+.bet-timer{font-family:'Syne',sans-serif;font-size:16px;font-weight:700;color:var(--neon);min-width:46px;text-align:right;}
+.bet-timer.expired{font-family:'DM Mono',monospace;font-size:9px;font-weight:400;color:var(--down);letter-spacing:1px;}
+
+/* Owner panel */
+.owner-panel{padding:14px 16px;border-bottom:1px solid rgba(213,253,81,0.15);background:rgba(213,253,81,0.03);}
+.owner-panel-title{font-size:9px;color:var(--neon);letter-spacing:2px;text-transform:uppercase;margin-bottom:12px;}
+.owner-stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px;}
+.owner-stat{background:var(--surface2);border:1px solid var(--border);border-radius:5px;padding:7px 8px;text-align:center;}
+.owner-stat-label{font-size:8px;color:var(--text-muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:2px;}
+.owner-stat-val{font-size:11px;color:var(--neon);}
+.owner-row{display:flex;align-items:center;gap:6px;margin-bottom:7px;}
+.owner-input{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:5px;padding:8px 10px;font-family:'DM Mono',monospace;font-size:12px;color:var(--text);outline:none;}
+.owner-input:focus{border-color:var(--neon);}
+.btn-owner{padding:8px 11px;border:none;border-radius:5px;font-family:'DM Mono',monospace;font-size:11px;cursor:pointer;transition:all 0.2s;white-space:nowrap;}
+.btn-deposit{background:var(--neon-dim);color:var(--neon);border:1px solid rgba(213,253,81,0.3);}
+.btn-deposit:hover{background:var(--neon);color:var(--black);}
+.btn-withdraw{background:var(--up-dim);color:var(--up);border:1px solid rgba(74,222,128,0.3);}
+.btn-withdraw:hover{background:var(--up);color:var(--black);}
+.btn-withdraw-all{background:var(--down-dim);color:var(--down);border:1px solid rgba(248,113,113,0.3);}
+.btn-withdraw-all:hover{background:var(--down);color:var(--black);}
+
+/* ── ADMIN PANEL (XP Dashboard) ── */
+.admin-xp-panel{display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,0.85);backdrop-filter:blur(12px);overflow-y:auto;}
+.admin-xp-inner{max-width:900px;margin:0 auto;padding:32px 24px;}
+.admin-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:28px;}
+.admin-title{font-family:'Syne',sans-serif;font-size:22px;font-weight:800;color:var(--xp);}
+.admin-title span{color:var(--text-muted);font-size:12px;font-family:'DM Mono',monospace;font-weight:400;margin-left:10px;}
+.btn-close-admin{background:var(--surface2);border:1px solid var(--border);color:var(--text-muted);padding:8px 16px;border-radius:6px;font-family:'DM Mono',monospace;font-size:12px;cursor:pointer;transition:all 0.2s;}
+.btn-close-admin:hover{border-color:var(--down);color:var(--down);}
+
+/* Admin stats row */
+.admin-stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:24px;}
+.admin-stat-card{background:rgba(17,17,17,0.9);border:1px solid var(--border);border-radius:8px;padding:14px 16px;}
+.admin-stat-card.xp{border-color:rgba(167,139,250,0.3);}
+.asc-label{font-size:9px;color:var(--text-muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px;}
+.asc-val{font-size:20px;font-family:'Syne',sans-serif;font-weight:800;color:var(--text);}
+.asc-val.xp{color:var(--xp);}
+.asc-val.neon{color:var(--neon);}
+.asc-sub{font-size:9px;color:var(--text-muted);margin-top:3px;}
+
+/* XP distribution button */
+.btn-distribute-xp{width:100%;padding:12px;background:var(--xp-dim);border:1px solid rgba(167,139,250,0.4);border-radius:8px;color:var(--xp);font-family:'DM Mono',monospace;font-size:12px;cursor:pointer;transition:all 0.2s;margin-bottom:20px;letter-spacing:0.5px;}
+.btn-distribute-xp:hover:not(:disabled){background:var(--xp);color:var(--black);}
+.btn-distribute-xp:disabled{opacity:0.4;cursor:not-allowed;}
+
+/* Players table */
+.players-table-wrap{background:rgba(17,17,17,0.9);border:1px solid var(--border);border-radius:8px;overflow:hidden;}
+.players-table-header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border);}
+.players-table-title{font-size:11px;color:var(--text-muted);letter-spacing:2px;text-transform:uppercase;}
+.players-search{background:var(--surface2);border:1px solid var(--border);border-radius:5px;padding:6px 10px;font-family:'DM Mono',monospace;font-size:11px;color:var(--text);outline:none;width:220px;}
+.players-search:focus{border-color:var(--xp);}
+.players-search::placeholder{color:var(--text-dim);}
+.players-table{width:100%;border-collapse:collapse;}
+.players-table th{font-size:9px;color:var(--text-muted);letter-spacing:1.5px;text-transform:uppercase;padding:10px 16px;text-align:left;border-bottom:1px solid var(--border);background:rgba(0,0,0,0.2);}
+.players-table th.right{text-align:right;}
+.players-table td{padding:10px 16px;font-size:12px;border-bottom:1px solid rgba(42,42,42,0.5);}
+.players-table tr:last-child td{border-bottom:none;}
+.players-table tr:hover td{background:rgba(167,139,250,0.04);}
+.td-addr{font-family:'DM Mono',monospace;color:var(--text);font-size:11px;}
+.td-addr-full{font-size:10px;color:var(--text-muted);margin-top:2px;}
+.td-xp{text-align:right;font-family:'Syne',sans-serif;font-weight:700;font-size:14px;color:var(--xp);}
+.td-vol{text-align:right;font-size:11px;color:var(--text-muted);}
+.td-rank{text-align:center;font-size:10px;}
+.rank-badge{display:inline-block;padding:2px 7px;border-radius:4px;font-size:9px;letter-spacing:1px;}
+.rank-1{background:rgba(251,191,36,0.15);color:#fbbf24;border:1px solid rgba(251,191,36,0.3);}
+.rank-2{background:rgba(156,163,175,0.15);color:#9ca3af;border:1px solid rgba(156,163,175,0.3);}
+.rank-3{background:rgba(180,83,9,0.15);color:#cd7c3a;border:1px solid rgba(180,83,9,0.3);}
+.rank-n{background:var(--surface2);color:var(--text-muted);border:1px solid var(--border);}
+.table-loading{text-align:center;padding:32px;color:var(--text-muted);font-size:12px;}
+.table-pagination{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--border);}
+.page-info{font-size:11px;color:var(--text-muted);}
+.page-btns{display:flex;gap:6px;}
+.btn-page{background:var(--surface2);border:1px solid var(--border);color:var(--text-muted);padding:5px 12px;border-radius:5px;font-family:'DM Mono',monospace;font-size:11px;cursor:pointer;transition:all 0.15s;}
+.btn-page:hover{border-color:var(--xp);color:var(--xp);}
+.btn-page:disabled{opacity:0.3;cursor:not-allowed;}
+
+/* XP schedule card */
+.xp-schedule-card{background:rgba(167,139,250,0.06);border:1px solid rgba(167,139,250,0.2);border-radius:8px;padding:14px 16px;margin-bottom:16px;}
+.xp-schedule-row{display:flex;justify-content:space-between;align-items:center;gap:10px;}
+.xp-schedule-item{text-align:center;flex:1;}
+.xsi-label{font-size:9px;color:var(--text-muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:4px;}
+.xsi-val{font-size:16px;font-family:'Syne',sans-serif;font-weight:800;color:var(--xp);}
+.xsi-sub{font-size:9px;color:var(--text-muted);margin-top:2px;}
+.xp-schedule-divider{width:1px;height:40px;background:var(--border);}
+/* Export button */
+.btn-export{background:var(--surface2);border:1px solid var(--border);color:var(--text-muted);padding:8px 14px;border-radius:6px;font-family:'DM Mono',monospace;font-size:11px;cursor:pointer;transition:all 0.2s;}
+.btn-export:hover{border-color:var(--neon);color:var(--neon);}
+
+/* Admin trigger button in owner panel */
+.btn-admin-xp{width:100%;padding:10px;background:var(--xp-dim);border:1px solid rgba(167,139,250,0.3);border-radius:7px;color:var(--xp);font-family:'DM Mono',monospace;font-size:11px;cursor:pointer;transition:all 0.2s;margin-top:8px;letter-spacing:0.5px;}
+.btn-admin-xp:hover{background:var(--xp);color:var(--black);}
+
+@media(max-width:900px){
+  .body-layout{grid-template-columns:1fr;grid-template-rows:300px 1fr;}
+  .chart-col{border-right:none;border-bottom:1px solid var(--border);}
+  .admin-stats-row{grid-template-columns:1fr 1fr;}
+}
+</style>
+</head>
+<body>
+<canvas id="graffiti-bg"></canvas>
+<div class="page">
+
+  <header class="header">
+    <div class="logo">
+      <div class="logo-icon"></div>
+      <div class="logo-text">BLOCK<span>ORACLE</span></div>
+    </div>
+    <div class="header-right">
+      <div class="xp-badge-header" id="xpBadgeHeader">
+        <span class="xp-icon">✦</span>
+        <span id="xpHeaderAmount">0 XP</span>
+      </div>
+      <a href="https://faucet.testnet.chain.robinhood.com/?error=undefined&address=0x6d4D522f22681b76483BF327ff7Bb6748a68Da5c&step=auth" target="_blank" class="btn-faucet">💧 Faucet</a>
+      <div class="chain-badge">Robinhood Chain · 46630</div>
+      <button class="btn-connect" id="btnConnect" onclick="connect()">Connect Wallet</button>
+      <button class="btn-disconnect" id="btnDisconnect" onclick="disconnect()" title="Disconnect">✕</button>
+    </div>
+  </header>
+
+  <div class="coin-tabs">
+    <div class="coin-tab active" onclick="selectCoin('BTC',this)">
+      <div class="coin-icon" style="background:#f7931a22;color:#f7931a;">₿</div>
+      <div><div class="coin-name">Bitcoin</div><div class="coin-sym">BTC</div></div>
+      <span class="coin-price-small" id="price-BTC">—</span>
+    </div>
+    <div class="coin-tab" onclick="selectCoin('ETH',this)">
+      <div class="coin-icon" style="background:#627eea22;color:#627eea;">Ξ</div>
+      <div><div class="coin-name">Ethereum</div><div class="coin-sym">ETH</div></div>
+      <span class="coin-price-small" id="price-ETH">—</span>
+    </div>
+    <div class="coin-tab" onclick="selectCoin('BNB',this)">
+      <div class="coin-icon" style="background:#f0b90b22;color:#f0b90b;">B</div>
+      <div><div class="coin-name">BNB</div><div class="coin-sym">BNB</div></div>
+      <span class="coin-price-small" id="price-BNB">—</span>
+    </div>
+    <div class="coin-tab" onclick="selectCoin('SOL',this)">
+      <div class="coin-icon" style="background:#9945ff22;color:#9945ff;">◎</div>
+      <div><div class="coin-name">Solana</div><div class="coin-sym">SOL</div></div>
+      <span class="coin-price-small" id="price-SOL">—</span>
+    </div>
+    <div class="coin-tab" onclick="selectCoin('XRP',this)">
+      <div class="coin-icon" style="background:#00aae422;color:#00aae4;">✕</div>
+      <div><div class="coin-name">Ripple</div><div class="coin-sym">XRP</div></div>
+      <span class="coin-price-small" id="price-XRP">—</span>
+    </div>
+  </div>
+
+  <div class="body-layout">
+    <div class="chart-col">
+      <div class="chart-header">
+        <div class="chart-coin-name" id="chartCoinName">
+          <span style="color:#f7931a">₿</span> BTC/USDT
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div class="chart-price" id="chartPrice">—</div>
+          <div class="chart-change pos" id="chartChange">—</div>
+        </div>
+      </div>
+      <div class="chart-wrap">
+        <div id="tv_chart"></div>
+        <div class="chart-corner-tr"></div>
+        <div class="chart-corner-bl"></div>
+        <div class="chart-wrap-inner"></div>
+        <div class="chart-scanlines"></div>
+      </div>
+    </div>
+
+    <div class="bet-col">
+      <!-- Stats -->
+      <div class="stats-panel">
+        <div class="round-row">
+          <div>
+            <div class="round-label">Round</div>
+            <div class="round-num" id="round">—</div>
+          </div>
+          <div style="text-align:center;">
+            <div class="round-label">Lock Price</div>
+            <div class="round-num" id="lockPrice">—</div>
+          </div>
+          <span id="roundStatus" class="status-pill status-waiting">—</span>
+        </div>
+        <div class="stats-grid">
+          <div class="stat-item">
+            <div class="stat-label">Wallet</div>
+            <div class="stat-value" id="wallet" style="font-size:11px;">Not connected</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Round ends in</div>
+            <div class="stat-value neon" id="timeLeftSmall">—</div>
+          </div>
+        </div>
+        <div class="result-banner" id="resultBanner"></div>
+      </div>
+
+      <!-- XP Panel (visible after connect) -->
+      <div class="xp-panel" id="xpPanel">
+        <div class="xp-panel-inner">
+          <div class="xp-left">
+            <div class="xp-orb">✦</div>
+            <div>
+              <div class="xp-label">Your XP</div>
+              <div class="xp-amount" id="xpAmount">0</div>
+              <div style="margin-top:3px;"><span class="xp-rank-badge" id="xpRank">Unranked</span></div>
+            </div>
+          </div>
+          <div class="xp-right">
+            <div class="xp-next-label">Next drop</div>
+            <div class="xp-countdown" id="xpCountdown">—</div>
+            <div class="xp-weeks-left" id="xpWeeksLeft">— weeks left</div>
+          </div>
+        </div>
+        <div class="xp-progress-wrap">
+          <div class="xp-progress-label">
+            <span>Season progress</span>
+            <span id="xpProgressPct">0%</span>
+          </div>
+          <div class="xp-progress-bar">
+            <div class="xp-progress-fill" id="xpProgressFill" style="width:0%"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bet form -->
+      <div class="bet-form">
+        <div class="section-title">Place your bet · <span id="tradingAsset" style="color:var(--neon)">BTC</span></div>
+        <div class="amount-input-wrap">
+          <input class="amount-input" id="amount" type="number" placeholder="0.0001" step="0.0001" min="0.0001"/>
+          <span class="amount-suffix">ETH</span>
+        </div>
+        <div class="dur-label">Duration</div>
+        <div class="dur-group">
+          <button class="dur-btn active" onclick="selectDuration(1,this)">1m</button>
+          <button class="dur-btn" onclick="selectDuration(2,this)">2m</button>
+          <button class="dur-btn" onclick="selectDuration(3,this)">3m</button>
+          <button class="dur-btn" onclick="selectDuration(4,this)">4m</button>
+          <button class="dur-btn" onclick="selectDuration(5,this)">5m</button>
+        </div>
+        <div class="bet-buttons">
+          <button class="btn-up"   id="btnUp"   onclick="betUp()"   disabled>▲ &nbsp;UP</button>
+          <button class="btn-down" id="btnDown" onclick="betDown()" disabled>▼ &nbsp;DOWN</button>
+        </div>
+        <div id="betHint"></div>
+        <button class="btn-settle" id="btnSettle" onclick="settle()">⏱ Settle Round</button>
+        <div class="payout-banner" id="payoutBanner"></div>
+        <button class="btn-new-round" id="btnNewRound" onclick="startNewRound()">▶ Start New Round</button>
+      </div>
+
+      <!-- Active bets -->
+      <div class="bets-section" id="betsSection" style="display:none;">
+        <div class="bets-title">My Active Bets</div>
+        <div id="betsList"></div>
+      </div>
+
+      <!-- Owner panel -->
+      <div class="owner-panel" id="ownerPanel" style="display:none;">
+        <div class="owner-panel-title">⬡ &nbsp;Owner Controls</div>
+        <div class="owner-stats">
+          <div class="owner-stat"><div class="owner-stat-label">Contract</div><div class="owner-stat-val" id="ownerBalContract">—</div></div>
+          <div class="owner-stat"><div class="owner-stat-label">My Profit</div><div class="owner-stat-val" id="ownerBalProfit">—</div></div>
+          <div class="owner-stat"><div class="owner-stat-label">Liquidity</div><div class="owner-stat-val" id="ownerBalLiquidity">—</div></div>
+        </div>
+        <div class="owner-row">
+          <input class="owner-input" id="depositAmount" type="number" placeholder="ETH amount" step="0.001"/>
+          <button class="btn-owner btn-deposit" onclick="ownerDeposit()">⬆ Deposit</button>
+        </div>
+        <div class="owner-row">
+          <input class="owner-input" id="withdrawAmount" type="number" placeholder="ETH (0=all)"/>
+          <button class="btn-owner btn-withdraw" onclick="ownerWithdraw()">⬇ Withdraw</button>
+          <button class="btn-owner btn-withdraw-all" onclick="ownerWithdrawAll()">All</button>
+        </div>
+        <button class="btn-admin-xp" onclick="openAdminPanel()">✦ XP Admin Dashboard</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════ ADMIN XP PANEL ════════════════════ -->
+<div class="admin-xp-panel" id="adminXpPanel">
+  <div class="admin-xp-inner">
+    <div class="admin-header">
+      <div>
+        <div class="admin-title">XP Admin Dashboard <span>PredictionMarketV5_XP</span></div>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn-export" onclick="exportCSV()">⬇ Export CSV</button>
+        <button class="btn-close-admin" onclick="closeAdminPanel()">✕ Close</button>
+      </div>
+    </div>
+
+    <!-- XP Schedule -->
+    <div class="xp-schedule-card">
+      <div class="xp-schedule-row">
+        <div class="xp-schedule-item">
+          <div class="xsi-label">Total XP Supply</div>
+          <div class="xsi-val">1,000,000</div>
+          <div class="xsi-sub">XP tokens</div>
+        </div>
+        <div class="xp-schedule-divider"></div>
+        <div class="xp-schedule-item">
+          <div class="xsi-label">Distributed</div>
+          <div class="xsi-val" id="adminXpGiven">—</div>
+          <div class="xsi-sub" id="adminXpGivenPct">—</div>
+        </div>
+        <div class="xp-schedule-divider"></div>
+        <div class="xp-schedule-item">
+          <div class="xsi-label">Weeks Done</div>
+          <div class="xsi-val" id="adminEpochsDone">—</div>
+          <div class="xsi-sub">of 17 weeks</div>
+        </div>
+        <div class="xp-schedule-divider"></div>
+        <div class="xp-schedule-item">
+          <div class="xsi-label">Next Drop</div>
+          <div class="xsi-val" id="adminNextDrop">—</div>
+          <div class="xsi-sub" id="adminNextDropDate">—</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Distribute XP button -->
+    <button class="btn-distribute-xp" id="btnDistributeXp" onclick="distributeXp()">
+      ✦ Distribute XP for Current Epoch
+    </button>
+
+    <!-- Stats row -->
+    <div class="admin-stats-row">
+      <div class="admin-stat-card xp">
+        <div class="asc-label">Total Players</div>
+        <div class="asc-val xp" id="adminPlayerCount">—</div>
+        <div class="asc-sub">unique wallets</div>
+      </div>
+      <div class="admin-stat-card xp">
+        <div class="asc-label">XP Remaining</div>
+        <div class="asc-val xp" id="adminXpLeft">—</div>
+        <div class="asc-sub">XP tokens</div>
+      </div>
+      <div class="admin-stat-card">
+        <div class="asc-label">Current Epoch</div>
+        <div class="asc-val neon" id="adminEpochNow">—</div>
+        <div class="asc-sub">week #</div>
+      </div>
+      <div class="admin-stat-card">
+        <div class="asc-label">XP/Week</div>
+        <div class="asc-val" style="font-size:14px;">58,823</div>
+        <div class="asc-sub">approx.</div>
+      </div>
+    </div>
+
+    <!-- Players table -->
+    <div class="players-table-wrap">
+      <div class="players-table-header">
+        <div class="players-table-title">All Players · XP Balances</div>
+        <input class="players-search" id="playersSearch" type="text" placeholder="Search by address..." oninput="filterPlayers()"/>
+      </div>
+      <div id="playersTableBody">
+        <div class="table-loading">Connect wallet as owner to load player data</div>
+      </div>
+      <div class="table-pagination" id="tablePagination" style="display:none;">
+        <div class="page-info" id="pageInfo">—</div>
+        <div class="page-btns">
+          <button class="btn-page" id="btnPrev" onclick="changePage(-1)">← Prev</button>
+          <button class="btn-page" id="btnNext" onclick="changePage(1)">Next →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════
+// CONTRACT CONFIG — новый адрес V5_XP
+// ══════════════════════════════════════════════════════
+const CONTRACT_ADDRESS = "0x210EF92898402913Ac1609c131dd6FED2F3e6310";
+const CHAIN_ID = 46630;
+const CHAIN_CONFIG = {
+  chainId: '0x' + CHAIN_ID.toString(16),
+  chainName: 'Robinhood Chain Testnet',
+  nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+  rpcUrls: ['https://testnet.chain.robinhood.com'],
+  blockExplorerUrls: ['https://testnet-explorer.chain.robinhood.com']
+};
+
+// ABI: оригинальные функции V5 + новые XP функции
+const abi = [
+  // V5 original
+  "function betUp() payable",
+  "function betDown() payable",
+  "function betUpToken(address,uint256)",
+  "function betDownToken(address,uint256)",
+  "function settle(uint256)",
+  "function claim(uint256,address)",
+  "function owner() view returns(address)",
+  "function currentRound() view returns(uint256)",
+  "function rounds(uint256) view returns(uint256,uint256,uint256,uint256,bool,bool)",
+  "function pools(uint256,address) view returns(uint256,uint256)",
+  "function upBets(uint256,address,address) view returns(uint256)",
+  "function downBets(uint256,address,address) view returns(uint256)",
+  "function setRoundDuration(uint256)",
+  "function setPlatformFee(uint256)",
+  // XP system
+  "function xpBalance(address) view returns(uint256)",
+  "function xpGiven() view returns(uint256)",
+  "function xpEpochsDone() view returns(uint256)",
+  "function xpEpochNow() view returns(uint256)",
+  "function xpStart() view returns(uint256)",
+  "function playerCount() view returns(uint256)",
+  "function getPlayersWithXp(uint256,uint256) view returns(address[],uint256[])",
+  "function xpInfo() view returns(uint256,uint256,uint256)",
+  "function distributeXp()",
+  "function players(uint256) view returns(address)"
+];
+
+let provider, signer, contract, user, contractOwner;
+let roundTimerInterval = null;
+let selectedDuration = 1;
+let selectedCoin = 'BTC';
+let activeBets = [];
+let betsRenderInterval = null;
+let playerRoundStatus = 0;
+let hasBetThisRound = false;
+let tvWidget = null;
+const priceCache = {};
+
+// XP admin state
+let allPlayers = [];
+let filteredPlayers = [];
+let currentPage = 0;
+const PAGE_SIZE = 20;
+let xpCountdownInterval = null;
+
+const COINS = {
+  BTC: { symbol:'BINANCE:BTCUSDT', binance:'BTCUSDT', name:'₿ BTC/USDT', color:'#f7931a', label:'₿' },
+  ETH: { symbol:'BINANCE:ETHUSDT', binance:'ETHUSDT', name:'Ξ ETH/USDT', color:'#627eea', label:'Ξ' },
+  BNB: { symbol:'BINANCE:BNBUSDT', binance:'BNBUSDT', name:'B BNB/USDT', color:'#f0b90b', label:'B' },
+  SOL: { symbol:'BINANCE:SOLUSDT', binance:'SOLUSDT', name:'◎ SOL/USDT', color:'#9945ff', label:'◎' },
+  XRP: { symbol:'BINANCE:XRPUSDT', binance:'XRPUSDT', name:'✕ XRP/USDT', color:'#00aae4', label:'✕' },
+};
+
+// ── Coin selection ───────────────────────────────────
+function selectCoin(coin, el) {
+  selectedCoin = coin;
+  document.querySelectorAll('.coin-tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  const cfg = COINS[coin];
+  document.getElementById('chartCoinName').innerHTML =
+    `<span style="color:${cfg.color}">${cfg.label}</span> ${coin}/USDT`;
+  document.getElementById('tradingAsset').innerText = coin;
+  if (priceCache[coin]) {
+    document.getElementById('chartPrice').innerText = priceCache[coin].price;
+    const changeEl = document.getElementById('chartChange');
+    changeEl.innerText = priceCache[coin].change;
+    changeEl.className = 'chart-change ' + priceCache[coin].dir;
+  } else {
+    document.getElementById('chartPrice').innerText = '—';
+  }
+  document.getElementById('tv_chart').innerHTML = '';
+  tvWidget = new TradingView.widget({
+    container_id: 'tv_chart', symbol: cfg.symbol, interval: '1',
+    theme: 'dark', width: '100%', height: '100%', autosize: true,
+    hide_side_toolbar: true, allow_symbol_change: false, toolbar_bg: '#0a0a0a',
+    overrides: {
+      "paneProperties.background": "#0d0f0a",
+      "paneProperties.backgroundType": "solid",
+      "paneProperties.vertGridProperties.color": "rgba(213,253,81,0.04)",
+      "paneProperties.horzGridProperties.color": "rgba(213,253,81,0.04)",
+      "scalesProperties.textColor": "#666666",
+      "scalesProperties.backgroundColor": "#0a0a0a",
+      "scalesProperties.lineColor": "#2a2a2a",
+    },
+    loading_screen: { backgroundColor: "#0d0f0a", foregroundColor: "#d5fd51" },
+  });
 }
 
-/**
- * @title PredictionMarketV5 + XP System
- *
- * ORIGINAL V5 contract — all data preserved unchanged:
- *   rounds, pools, upBets, downBets, currentRound, roundDuration, platformFee
- *
- * ADDED — XP system:
- *   - 1,000,000 XP distributed over 17 weeks (~4 months)
- *   - ~58,823 XP every Sunday 24:00 UTC (Monday transition)
- *   - Proportional to each player weekly bet volume
- *   - getPlayersWithXp(offset, limit) — list of all wallets + XP for developer
- */
-contract PredictionMarketV5_XP {
+// ── Connect wallet ───────────────────────────────────
+async function connect() {
+  if (!window.ethereum) { alert("MetaMask not found!"); return; }
+  try {
+    provider = new ethers.providers.Web3Provider(window.ethereum);
+    await provider.send("eth_requestAccounts", []);
+    const network = await provider.getNetwork();
+    if (network.chainId !== CHAIN_ID) {
+      try {
+        await window.ethereum.request({ method:'wallet_switchEthereumChain', params:[{chainId:CHAIN_CONFIG.chainId}] });
+      } catch(e) {
+        if (e.code === 4902) {
+          await window.ethereum.request({ method:'wallet_addEthereumChain', params:[CHAIN_CONFIG] });
+        } else { alert("Could not switch chain"); return; }
+      }
+      provider = new ethers.providers.Web3Provider(window.ethereum);
+    }
+    signer = provider.getSigner();
+    user = await signer.getAddress();
+    contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
+    contractOwner = await contract.owner();
 
-    // ═══════════════════════════════════════════════════════════════
-    // ORIGINAL STRUCTS (V5 — unchanged)
-    // ═══════════════════════════════════════════════════════════════
+    document.getElementById('wallet').innerText = user.slice(0,6)+'...'+user.slice(-4);
+    const btn = document.getElementById('btnConnect');
+    btn.innerText = user.slice(0,6)+'...'+user.slice(-4);
+    btn.classList.add('connected');
+    btn.onclick = null;
+    document.getElementById('btnDisconnect').style.display = 'block';
 
-    struct Pool {
-        uint256 upPool;
-        uint256 downPool;
+    // Show XP panel
+    document.getElementById('xpPanel').style.display = 'block';
+    document.getElementById('xpBadgeHeader').style.display = 'flex';
+
+    // Load XP for this user
+    await loadUserXp();
+    setInterval(loadUserXp, 15000);
+
+    if (user.toLowerCase() === contractOwner.toLowerCase()) {
+      document.getElementById('ownerPanel').style.display = 'block';
+      await loadOwnerStats();
     }
 
-    struct Round {
-        uint256 startTime;
-        uint256 endTime;
-        uint256 startPrice;
-        uint256 endPrice;
-        bool settled;
-        bool outcome;
+    await loadPlayerRound();
+    setInterval(loadPlayerRound, 8000);
+
+    window.ethereum.on('accountsChanged', () => disconnect());
+    window.ethereum.on('chainChanged', () => location.reload());
+
+  } catch(e) { alert("Connection error: " + e.message); }
+}
+
+// ── Disconnect ───────────────────────────────────────
+function disconnect() {
+  provider = null; signer = null; contract = null;
+  user = null; contractOwner = null;
+  playerRoundStatus = 0; hasBetThisRound = false;
+  if (roundTimerInterval) { clearInterval(roundTimerInterval); roundTimerInterval = null; }
+  if (xpCountdownInterval) { clearInterval(xpCountdownInterval); xpCountdownInterval = null; }
+
+  document.getElementById('btnConnect').innerText = 'Connect Wallet';
+  document.getElementById('btnConnect').classList.remove('connected');
+  document.getElementById('btnConnect').onclick = connect;
+  document.getElementById('btnDisconnect').style.display = 'none';
+  document.getElementById('wallet').innerText = 'Not connected';
+  document.getElementById('round').innerText = '—';
+  document.getElementById('lockPrice').innerText = '—';
+  document.getElementById('timeLeftSmall').innerText = '—';
+  document.getElementById('resultBanner').className = 'result-banner';
+  document.getElementById('ownerPanel').style.display = 'none';
+  document.getElementById('betsSection').style.display = 'none';
+  document.getElementById('xpPanel').style.display = 'none';
+  document.getElementById('xpBadgeHeader').style.display = 'none';
+  setStatus('—', 'waiting');
+  document.getElementById('payoutBanner').className = 'payout-banner';
+  document.getElementById('btnNewRound').style.display = 'none';
+  updateBetButtons();
+}
+
+// ── Load XP for current user ─────────────────────────
+async function loadUserXp() {
+  if (!contract || !user) return;
+  try {
+    const [rawXp, info] = await Promise.all([
+      contract.xpBalance(user),
+      contract.xpInfo()
+    ]);
+
+    const xpNum = parseFloat(ethers.utils.formatEther(rawXp));
+    const xpFormatted = xpNum >= 1000
+      ? (xpNum/1000).toFixed(1) + 'K'
+      : xpNum.toFixed(1);
+
+    document.getElementById('xpAmount').innerText = xpFormatted;
+    document.getElementById('xpHeaderAmount').innerText = xpFormatted + ' XP';
+
+    // Rank label
+    const rank = xpNum >= 10000 ? '🥇 LEGEND'
+                : xpNum >= 5000  ? '🥈 ELITE'
+                : xpNum >= 1000  ? '🥉 PRO'
+                : xpNum >= 100   ? '⚡ ACTIVE'
+                : xpNum > 0      ? '✦ ROOKIE'
+                :                  'Unranked';
+    document.getElementById('xpRank').innerText = rank;
+
+    // Schedule info
+    const nextDrop    = info[0].toNumber();
+    const weeksLeft   = info[1].toNumber();
+    const xpRemaining = parseFloat(ethers.utils.formatEther(info[2]));
+
+    document.getElementById('xpWeeksLeft').innerText = weeksLeft + ' weeks left';
+
+    // Season progress
+    const weeksDone = 17 - weeksLeft;
+    const pct = Math.round((weeksDone / 17) * 100);
+    document.getElementById('xpProgressPct').innerText = pct + '%';
+    document.getElementById('xpProgressFill').style.width = pct + '%';
+
+    // Countdown to next drop
+    startXpCountdown(nextDrop);
+
+  } catch(e) { console.warn('loadUserXp:', e.message); }
+}
+
+function startXpCountdown(nextDropTs) {
+  if (xpCountdownInterval) clearInterval(xpCountdownInterval);
+  function tick() {
+    const left = nextDropTs - Math.floor(Date.now() / 1000);
+    if (left <= 0) {
+      document.getElementById('xpCountdown').innerText = 'Now!';
+      clearInterval(xpCountdownInterval);
+      return;
+    }
+    const d = Math.floor(left / 86400);
+    const h = Math.floor((left % 86400) / 3600);
+    const m = Math.floor((left % 3600) / 60);
+    const s = left % 60;
+    document.getElementById('xpCountdown').innerText =
+      d > 0 ? `${d}d ${h}h ${m}m` : `${h}h ${m}m ${s}s`;
+  }
+  tick();
+  xpCountdownInterval = setInterval(tick, 1000);
+}
+
+// ── Load current round ───────────────────────────────
+async function loadPlayerRound() {
+  if (!contract || !user) return;
+  try {
+    const roundId = (await contract.currentRound()).toNumber();
+    if (roundId === 0) {
+      setStatus('Ready', 'waiting');
+      document.getElementById('round').innerText = '—';
+      updateBetButtons();
+      return;
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // ORIGINAL STATE (V5 — unchanged)
-    // ═══════════════════════════════════════════════════════════════
+    const r = await contract.rounds(roundId);
+    const startTime  = r[0].toNumber();
+    const endTime    = r[1].toNumber();
+    const startPrice = r[2].toNumber();
+    const endPrice   = r[3].toNumber();
+    const settled    = r[4];
+    const outcome    = r[5];
+    const now        = Math.floor(Date.now() / 1000);
 
-    address public owner;
-    uint256 public currentRound;
-    uint256 public roundDuration = 300; // 5 minutes
-    uint256 public platformFee = 200;   // 2%
-    uint256 constant DENOM = 10000;
+    document.getElementById('round').innerText    = '#' + roundId;
+    document.getElementById('lockPrice').innerText = startPrice > 0 ? '$' + startPrice.toLocaleString() : '—';
 
-    mapping(uint256 => Round)                                              public rounds;
-    mapping(uint256 => mapping(address => Pool))                           public pools;
-    mapping(uint256 => mapping(address => mapping(address => uint256)))    public upBets;
-    mapping(uint256 => mapping(address => mapping(address => uint256)))    public downBets;
+    // Check user's bets
+    const upBet   = await contract.upBets(roundId, ethers.constants.AddressZero, user);
+    const downBet = await contract.downBets(roundId, ethers.constants.AddressZero, user);
+    hasBetThisRound = upBet.gt(0) || downBet.gt(0);
 
-    // ═══════════════════════════════════════════════════════════════
-    // XP SYSTEM (new)
-    // ═══════════════════════════════════════════════════════════════
-
-    uint256 public constant XP_TOTAL    = 1_000_000e18; // 1,000,000 XP (18 decimals)
-    uint256 public constant XP_WEEKS    = 17;            // 17 weeks ~4 months
-    uint256 public constant XP_PER_WEEK = XP_TOTAL / XP_WEEKS; // ~58,823 XP per week
-    uint256 public constant WEEK        = 7 days;
-
-    /// Unix-timestamp of first Monday 00:00 UTC after deploy
-    uint256 public xpStart;
-
-    /// How many epochs distributed (0..17)
-    uint256 public xpEpochsDone;
-
-    /// Current active epoch (week)
-    uint256 public xpEpochNow;
-
-    /// XP balance per player
-    mapping(address => uint256) public xpBalance;
-
-    /// Total XP given out
-    uint256 public xpGiven;
-
-    /// All unique players (for iteration)
-    address[] public players;
-    mapping(address => bool) private _known;
-
-    /// Player bet volume per week: epochVolume[epoch][player]
-    mapping(uint256 => mapping(address => uint256)) public epochVolume;
-
-    /// Total volume per week: epochTotal[epoch]
-    mapping(uint256 => uint256) public epochTotal;
-
-    // ═══════════════════════════════════════════════════════════════
-    // EVENTS
-    // ═══════════════════════════════════════════════════════════════
-
-    event BetPlaced(uint256 roundId, address token, address user, bool direction, uint256 amount);
-    event RoundStarted(uint256 roundId, uint256 startPrice);
-    event RoundSettled(uint256 roundId, bool outcome, uint256 endPrice);
-    event Claimed(uint256 roundId, address token, address user, uint256 payout);
-
-    event XpAwarded(uint256 indexed epoch, address indexed player, uint256 amount);
-    event XpEpochDone(uint256 indexed epoch, uint256 totalXp, uint256 numPlayers);
-    event PlayerJoined(address indexed player);
-
-    // ═══════════════════════════════════════════════════════════════
-    // MODIFIERS
-    // ═══════════════════════════════════════════════════════════════
-
-    modifier onlyOwner() {
-        require(msg.sender == owner, "Not owner");
-        _;
+    if (settled) {
+      playerRoundStatus = 3;
+      setStatus('Settled', 'waiting');
+      if (roundTimerInterval) { clearInterval(roundTimerInterval); roundTimerInterval = null; }
+      document.getElementById('timeLeftSmall').innerText = '—';
+      const banner = document.getElementById('resultBanner');
+      banner.className = 'result-banner show ' + (outcome ? 'up-won' : 'down-won');
+      banner.innerHTML = outcome
+        ? `▲ UP WON · Close $${endPrice.toLocaleString()}`
+        : `▼ DOWN WON · Close $${endPrice.toLocaleString()}`;
+      document.getElementById('btnNewRound').style.display = 'block';
+    } else if (now < endTime) {
+      playerRoundStatus = 1;
+      setStatus('Active', 'active');
+      startRoundTimer(endTime);
+      document.getElementById('resultBanner').className = 'result-banner';
+    } else {
+      playerRoundStatus = 2;
+      setStatus('Ended', 'ended');
+      document.getElementById('timeLeftSmall').innerText = '—';
+      if (roundTimerInterval) { clearInterval(roundTimerInterval); roundTimerInterval = null; }
+      document.getElementById('btnSettle').style.display = 'block';
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // CONSTRUCTOR
-    // ═══════════════════════════════════════════════════════════════
-
-    /**
-     * @param _startPrice  Initial BTC/USD price for round #1
-     * @param _xpStart     Timestamp of first Monday 00:00 UTC.
-     *                     Pass 0 — contract auto-calculates next Monday.
-     */
-    constructor(uint256 _startPrice, uint256 _xpStart) {
-        owner = msg.sender;
-
-        if (_xpStart > 0) {
-            xpStart = _xpStart;
-        } else {
-            // Calculate next Monday 00:00 UTC automatically
-            uint256 dow = (block.timestamp / 86400 + 4) % 7;
-            uint256 daysLeft = dow == 0 ? 1 : (8 - dow) % 7;
-            if (daysLeft == 0) daysLeft = 7;
-            xpStart = (block.timestamp / 86400) * 86400 + daysLeft * 86400;
-        }
-
-        _startNewRound(_startPrice);
+    updateBetButtons();
+    if (contractOwner && user.toLowerCase() === contractOwner.toLowerCase()) {
+      await loadOwnerStats();
     }
+  } catch(e) { console.error('loadPlayerRound:', e.message); }
+}
 
-    // ═══════════════════════════════════════════════════════════════
-    // BETS — ETH (original V5, with _track added)
-    // ═══════════════════════════════════════════════════════════════
-
-    function betUp() external payable {
-        require(block.timestamp < rounds[currentRound].endTime, "Round ended");
-        _track(msg.sender, msg.value);
-        pools[currentRound][address(0)].upPool += msg.value;
-        upBets[currentRound][address(0)][msg.sender] += msg.value;
-        emit BetPlaced(currentRound, address(0), msg.sender, true, msg.value);
+// ── Timer ────────────────────────────────────────────
+function startRoundTimer(endTime) {
+  if (roundTimerInterval) clearInterval(roundTimerInterval);
+  roundTimerInterval = setInterval(async () => {
+    const left = endTime - Math.floor(Date.now() / 1000);
+    if (left > 0) {
+      document.getElementById('timeLeftSmall').innerText = formatTime(left);
+    } else {
+      document.getElementById('timeLeftSmall').innerText = '—';
+      clearInterval(roundTimerInterval); roundTimerInterval = null;
+      setStatus('Ended', 'ended');
+      document.getElementById('btnSettle').style.display = 'block';
+      updateBetButtons();
+      if (user && contractOwner && user.toLowerCase() === contractOwner.toLowerCase()) {
+        await autoSettle();
+      }
     }
+  }, 1000);
+}
 
-    function betDown() external payable {
-        require(block.timestamp < rounds[currentRound].endTime, "Round ended");
-        _track(msg.sender, msg.value);
-        pools[currentRound][address(0)].downPool += msg.value;
-        downBets[currentRound][address(0)][msg.sender] += msg.value;
-        emit BetPlaced(currentRound, address(0), msg.sender, false, msg.value);
+function startNewRound() {
+  document.getElementById('payoutBanner').className = 'payout-banner';
+  document.getElementById('btnNewRound').style.display = 'none';
+  document.getElementById('resultBanner').className = 'result-banner';
+  playerRoundStatus = 0; hasBetThisRound = false;
+  setStatus('Ready', 'waiting');
+  updateBetButtons();
+}
+
+function updateBetButtons() {
+  const connected = !!user && !!contract;
+  const canBet = connected && playerRoundStatus === 1 && !hasBetThisRound;
+  const canStart = connected && (playerRoundStatus === 0 || playerRoundStatus === 3);
+  document.getElementById('btnUp').disabled   = !(canBet || canStart);
+  document.getElementById('btnDown').disabled = !(canBet || canStart);
+  const hint = document.getElementById('betHint');
+  if (connected && hasBetThisRound && playerRoundStatus === 1) {
+    hint.innerText = '✓ Bet placed — waiting for round to end';
+    hint.style.color = 'var(--up)';
+  } else if (connected && playerRoundStatus === 0) {
+    hint.innerText = 'Bet to start a new round';
+    hint.style.color = 'var(--text-muted)';
+  } else { hint.innerText = ''; }
+}
+
+// ── Betting ──────────────────────────────────────────
+async function betUp()   { await _bet('UP'); }
+async function betDown() { await _bet('DOWN'); }
+
+async function _bet(direction) {
+  if (!checkConnected()) return;
+  const amount = document.getElementById('amount').value;
+  if (!amount || parseFloat(amount) <= 0) { alert('Enter a valid ETH amount'); return; }
+  document.getElementById('btnUp').disabled = true;
+  document.getElementById('btnDown').disabled = true;
+  try {
+    const val = ethers.utils.parseEther(amount);
+    const tx = direction === 'UP'
+      ? await contract.betUp({ value: val })
+      : await contract.betDown({ value: val });
+    await tx.wait();
+    hasBetThisRound = true;
+    addActiveBet(direction, amount);
+    await loadPlayerRound();
+    await loadUserXp(); // refresh XP after bet (volume counted)
+  } catch(e) {
+    alert('Bet failed: ' + (e.reason || e.message));
+  } finally { updateBetButtons(); }
+}
+
+// ── Settle ───────────────────────────────────────────
+async function settle() {
+  if (!checkConnected()) return;
+  document.getElementById('btnSettle').disabled = true;
+  try {
+    const closePrice = await fetchCoinPrice(selectedCoin);
+    const tx = await contract.settle(closePrice);
+    await tx.wait();
+    document.getElementById('btnSettle').style.display = 'none';
+    await loadPlayerRound();
+  } catch(e) {
+    alert('Settle failed: ' + (e.reason || e.message));
+    document.getElementById('btnSettle').disabled = false;
+  }
+}
+
+async function autoSettle() {
+  try {
+    const closePrice = await fetchCoinPrice(selectedCoin);
+    const tx = await contract.settle(closePrice);
+    await tx.wait();
+    document.getElementById('btnSettle').style.display = 'none';
+    await loadPlayerRound();
+  } catch(e) { console.error('Auto-settle:', e.message); }
+}
+
+// ── Price fetching ────────────────────────────────────
+const CG_IDS = { BTC:'bitcoin', ETH:'ethereum', BNB:'binancecoin', SOL:'solana', XRP:'ripple' };
+
+async function fetchCoinPrice(coin) {
+  if (priceCache[coin] && priceCache[coin].raw > 0) return Math.round(priceCache[coin].raw);
+  try {
+    const r = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${COINS[coin].binance}`);
+    if (r.ok) { const d = await r.json(); const p = Math.round(parseFloat(d.price)); if (p > 0) return p; }
+  } catch(e) {}
+  try {
+    const r = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${CG_IDS[coin]}&vs_currencies=usd`);
+    if (r.ok) { const d = await r.json(); return Math.round(d[CG_IDS[coin]].usd); }
+  } catch(e) {}
+  throw new Error('All price sources failed for ' + coin);
+}
+
+function startPriceWebSocket() {
+  const ws = new WebSocket('wss://stream.binance.com:9443/stream?streams=btcusdt@ticker/ethusdt@ticker/bnbusdt@ticker/solusdt@ticker/xrpusdt@ticker');
+  ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    const t = msg.data; if (!t) return;
+    const coinKey = Object.keys(COINS).find(k => COINS[k].binance === t.s);
+    if (!coinKey) return;
+    const price = parseFloat(t.c);
+    const change = parseFloat(t.P);
+    const fmt = price < 10 ? price.toFixed(4) : price < 1000 ? price.toFixed(2) : Math.round(price).toLocaleString();
+    const changeStr = (change >= 0 ? '+' : '') + change.toFixed(2) + '%';
+    const dir = change >= 0 ? 'pos' : 'neg';
+    priceCache[coinKey] = { price:'$'+fmt, change:changeStr, dir, raw:price };
+    const el = document.getElementById('price-'+coinKey);
+    if (el) el.innerText = '$'+fmt;
+    if (coinKey === selectedCoin) {
+      document.getElementById('chartPrice').innerText = '$'+fmt;
+      const changeEl = document.getElementById('chartChange');
+      changeEl.innerText = changeStr; changeEl.className = 'chart-change '+dir;
     }
+  };
+  ws.onclose = () => setTimeout(startPriceWebSocket, 3000);
+  ws.onerror = () => ws.close();
+}
 
-    // ═══════════════════════════════════════════════════════════════
-    // BETS — ERC20 (original V5, with _track added)
-    // ═══════════════════════════════════════════════════════════════
+// ── Active bets display ───────────────────────────────
+function addActiveBet(direction, amount) {
+  const endTime = Math.floor(Date.now() / 1000) + selectedDuration * 60;
+  activeBets.push({ direction, amount, endTime, coin: selectedCoin, durationMin: selectedDuration });
+  renderBets();
+  if (!betsRenderInterval) betsRenderInterval = setInterval(renderBets, 1000);
+}
 
-    function betUpToken(address token, uint256 amount) external {
-        require(block.timestamp < rounds[currentRound].endTime, "Round ended");
-        _track(msg.sender, amount);
-        IERC20(token).transferFrom(msg.sender, address(this), amount);
-        pools[currentRound][token].upPool += amount;
-        upBets[currentRound][token][msg.sender] += amount;
-        emit BetPlaced(currentRound, token, msg.sender, true, amount);
-    }
+function renderBets() {
+  const list = document.getElementById('betsList');
+  const section = document.getElementById('betsSection');
+  if (!activeBets.length) { section.style.display='none'; return; }
+  section.style.display = 'block';
+  const now = Math.floor(Date.now() / 1000);
+  list.innerHTML = activeBets.map(bet => {
+    const left = bet.endTime - now;
+    const timer = left > 0
+      ? `<div class="bet-timer">${formatTime(left)}</div>`
+      : `<div class="bet-timer expired">SETTLE</div>`;
+    const dc = bet.direction === 'UP' ? 'up' : 'down';
+    return `<div class="bet-item">
+      <span class="bet-dir-badge ${dc}">${bet.direction}</span>
+      <div class="bet-info">
+        <div class="bet-amount">${parseFloat(bet.amount).toFixed(4)} ETH</div>
+        <div class="bet-meta">${bet.coin} · ${bet.durationMin}m</div>
+      </div>${timer}</div>`;
+  }).join('');
+}
 
-    function betDownToken(address token, uint256 amount) external {
-        require(block.timestamp < rounds[currentRound].endTime, "Round ended");
-        _track(msg.sender, amount);
-        IERC20(token).transferFrom(msg.sender, address(this), amount);
-        pools[currentRound][token].downPool += amount;
-        downBets[currentRound][token][msg.sender] += amount;
-        emit BetPlaced(currentRound, token, msg.sender, false, amount);
-    }
+function formatTime(s) {
+  const m = Math.floor(s/60);
+  return m > 0 ? `${m}:${(s%60).toString().padStart(2,'0')}` : `${s}s`;
+}
 
-    // ═══════════════════════════════════════════════════════════════
-    // SETTLE (original V5 — unchanged)
-    // ═══════════════════════════════════════════════════════════════
+// ── Owner ─────────────────────────────────────────────
+async function loadOwnerStats() {
+  if (!contract || !user) return;
+  try {
+    const bal = await provider.getBalance(CONTRACT_ADDRESS);
+    document.getElementById('ownerBalContract').innerText  = parseFloat(ethers.utils.formatEther(bal)).toFixed(4) + ' ETH';
+    document.getElementById('ownerBalProfit').innerText    = '—';
+    document.getElementById('ownerBalLiquidity').innerText = '—';
+  } catch(e) {}
+}
 
-    function settle(uint256 endPrice) external onlyOwner {
-        Round storage r = rounds[currentRound];
-        require(!r.settled, "Already settled");
-        require(block.timestamp >= r.endTime, "Round not ended");
-        r.settled = true;
-        r.endPrice = endPrice;
-        r.outcome = endPrice > r.startPrice;
-        emit RoundSettled(currentRound, r.outcome, endPrice);
-        _tickEpoch();
-        _startNewRound(endPrice);
-    }
+async function ownerDeposit() {
+  const amount = document.getElementById('depositAmount').value;
+  if (!amount) { alert('Enter amount'); return; }
+  try {
+    const tx = await signer.sendTransaction({ to: CONTRACT_ADDRESS, value: ethers.utils.parseEther(amount) });
+    await tx.wait();
+    document.getElementById('depositAmount').value = '';
+    await loadOwnerStats(); alert('Deposited ✓');
+  } catch(e) { alert('Deposit failed: ' + (e.reason||e.message)); }
+}
 
-    // ═══════════════════════════════════════════════════════════════
-    // CLAIM (original V5 — unchanged)
-    // ═══════════════════════════════════════════════════════════════
+async function ownerWithdraw() {
+  alert('Use contract claim() function for withdrawals');
+}
 
-    function claim(uint256 roundId, address token) external {
-        Round storage r = rounds[roundId];
-        require(r.settled, "Round not settled");
-        Pool storage p = pools[roundId][token];
-        uint256 userBet;
-        uint256 reward;
-        if (r.outcome) {
-            userBet = upBets[roundId][token][msg.sender];
-            require(userBet > 0, "No win");
-            reward = (userBet * (p.upPool + p.downPool)) / p.upPool;
-            upBets[roundId][token][msg.sender] = 0;
-        } else {
-            userBet = downBets[roundId][token][msg.sender];
-            require(userBet > 0, "No win");
-            reward = (userBet * (p.upPool + p.downPool)) / p.downPool;
-            downBets[roundId][token][msg.sender] = 0;
-        }
-        uint256 fee = (reward * platformFee) / DENOM;
-        uint256 payout = reward - fee;
-        if (token == address(0)) {
-            _safeETH(msg.sender, payout);
-            _safeETH(owner, fee);
-        } else {
-            IERC20(token).transfer(msg.sender, payout);
-            IERC20(token).transfer(owner, fee);
-        }
-        emit Claimed(roundId, token, msg.sender, payout);
-    }
+async function ownerWithdrawAll() {
+  alert('Use contract claim() function for withdrawals');
+}
 
-    // ═══════════════════════════════════════════════════════════════
-    // XP — DISTRIBUTION
-    // ═══════════════════════════════════════════════════════════════
+// ── ADMIN XP PANEL ─────────────────────────────────────
+async function openAdminPanel() {
+  document.getElementById('adminXpPanel').style.display = 'block';
+  document.body.style.overflow = 'hidden';
+  await loadAdminData();
+}
 
-    /**
-     * @notice Distribute XP for the past week.
-     *         Call after Sunday 24:00 UTC.
-     *         Anyone can call — contract enforces the schedule.
-     */
-    function distributeXp() external {
-        _tickEpoch();
-        require(xpEpochsDone < xpEpochNow,  "Not Sunday yet");
-        require(xpEpochsDone < XP_WEEKS,     "All XP distributed");
+function closeAdminPanel() {
+  document.getElementById('adminXpPanel').style.display = 'none';
+  document.body.style.overflow = '';
+}
 
-        uint256 ep  = xpEpochsDone;
-        uint256 tot = epochTotal[ep];
+async function loadAdminData() {
+  if (!contract) return;
+  try {
+    // Load XP schedule info
+    const [info, epochsDone, epochNow, totalPlayers] = await Promise.all([
+      contract.xpInfo(),
+      contract.xpEpochsDone(),
+      contract.xpEpochNow(),
+      contract.playerCount()
+    ]);
 
-        if (tot == 0) {
-            xpEpochsDone++;
-            emit XpEpochDone(ep, 0, 0);
-            return;
-        }
+    const nextDrop    = info[0].toNumber();
+    const weeksLeft   = info[1].toNumber();
+    const xpRemaining = parseFloat(ethers.utils.formatEther(info[2]));
+    const given       = 1000000 - xpRemaining;
+    const givenPct    = ((given / 1000000) * 100).toFixed(1);
 
-        uint256 count = 0;
-        for (uint256 i = 0; i < players.length; i++) {
-            address p   = players[i];
-            uint256 vol = epochVolume[ep][p];
-            if (vol == 0) continue;
-            uint256 share = (XP_PER_WEEK * vol) / tot;
-            xpBalance[p] += share;
-            xpGiven      += share;
-            count++;
-            emit XpAwarded(ep, p, share);
-        }
+    document.getElementById('adminXpGiven').innerText     = given.toLocaleString('en', {maximumFractionDigits:0});
+    document.getElementById('adminXpGivenPct').innerText  = givenPct + '% distributed';
+    document.getElementById('adminEpochsDone').innerText  = epochsDone.toNumber();
+    document.getElementById('adminEpochNow').innerText    = epochNow.toNumber();
+    document.getElementById('adminPlayerCount').innerText = totalPlayers.toNumber();
+    document.getElementById('adminXpLeft').innerText      = xpRemaining.toLocaleString('en', {maximumFractionDigits:0});
 
-        xpEpochsDone++;
-        emit XpEpochDone(ep, XP_PER_WEEK, count);
-    }
+    // Next drop date
+    const nextDropDate = new Date(nextDrop * 1000);
+    const leftSec = nextDrop - Math.floor(Date.now() / 1000);
+    const d = Math.floor(leftSec / 86400);
+    const h = Math.floor((leftSec % 86400) / 3600);
+    const m = Math.floor((leftSec % 3600) / 60);
+    document.getElementById('adminNextDrop').innerText = leftSec > 0
+      ? (d > 0 ? `${d}d ${h}h` : `${h}h ${m}m`)
+      : 'Now!';
+    document.getElementById('adminNextDropDate').innerText = nextDropDate.toLocaleDateString('en', {weekday:'short',month:'short',day:'numeric'});
 
-    /**
-     * @notice Batch distribution for large player sets (gas-safe).
-     * @param ep        Epoch number (== xpEpochsDone)
-     * @param from      Start index in players array
-     * @param to        End index (exclusive)
-     * @param finalize  true = finalize epoch (pass in last batch)
-     */
-    function distributeXpBatch(uint256 ep, uint256 from, uint256 to, bool finalize) external {
-        _tickEpoch();
-        require(ep == xpEpochsDone,   "Wrong epoch");
-        require(ep < xpEpochNow,      "Epoch not closed");
-        require(ep < XP_WEEKS,        "All XP distributed");
-        require(to <= players.length, "Out of bounds");
+    // Load all players
+    await loadAllPlayers(totalPlayers.toNumber());
 
-        uint256 tot = epochTotal[ep];
-        if (tot == 0) {
-            if (finalize) { xpEpochsDone++; emit XpEpochDone(ep, 0, 0); }
-            return;
-        }
+  } catch(e) { console.error('loadAdminData:', e.message); }
+}
 
-        uint256 count = 0;
-        for (uint256 i = from; i < to; i++) {
-            address p   = players[i];
-            uint256 vol = epochVolume[ep][p];
-            if (vol == 0) continue;
-            uint256 share = (XP_PER_WEEK * vol) / tot;
-            xpBalance[p] += share;
-            xpGiven      += share;
-            count++;
-            emit XpAwarded(ep, p, share);
-        }
+async function loadAllPlayers(total) {
+  if (!contract || total === 0) {
+    document.getElementById('playersTableBody').innerHTML = '<div class="table-loading">No players yet</div>';
+    return;
+  }
 
-        if (finalize) {
-            xpEpochsDone++;
-            emit XpEpochDone(ep, XP_PER_WEEK, count);
-        }
-    }
+  document.getElementById('playersTableBody').innerHTML = '<div class="table-loading">Loading ' + total + ' players...</div>';
 
-    // ═══════════════════════════════════════════════════════════════
-    // XP — VIEW (for developer)
-    // ═══════════════════════════════════════════════════════════════
-
-    /// @notice Total unique players
-    function playerCount() external view returns (uint256) {
-        return players.length;
-    }
-
-    /**
-     * @notice All players with XP balances — for dev dashboard.
-     * @param offset  Start index
-     * @param limit   How many records to return
-     * @return addrs  Wallet addresses
-     * @return xp     XP balances (divide by 1e18 for display)
-     */
-    function getPlayersWithXp(uint256 offset, uint256 limit)
-        external view
-        returns (address[] memory addrs, uint256[] memory xp)
-    {
-        uint256 total = players.length;
-        if (offset >= total) return (new address[](0), new uint256[](0));
-        uint256 end  = offset + limit > total ? total : offset + limit;
-        uint256 size = end - offset;
-        addrs = new address[](size);
-        xp    = new uint256[](size);
-        for (uint256 i = 0; i < size; i++) {
-            addrs[i] = players[offset + i];
-            xp[i]    = xpBalance[players[offset + i]];
-        }
-    }
-
-    /**
-     * @notice XP schedule info for frontend countdown.
-     * @return nextDrop    Timestamp of next Sunday 24:00 UTC
-     * @return weeksLeft   Weeks of distribution remaining
-     * @return xpRemaining XP not yet distributed
-     */
-    function xpInfo() external view returns (
-        uint256 nextDrop,
-        uint256 weeksLeft,
-        uint256 xpRemaining
-    ) {
-        nextDrop    = xpStart + (xpEpochNow + 1) * WEEK;
-        weeksLeft   = xpEpochsDone < XP_WEEKS ? XP_WEEKS - xpEpochsDone : 0;
-        xpRemaining = XP_TOTAL > xpGiven ? XP_TOTAL - xpGiven : 0;
-    }
-
-    /// @notice Betting volume for a player in a given epoch
-    function playerEpochVolume(uint256 ep, address player)
-        external view returns (uint256)
-    {
-        return epochVolume[ep][player];
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // INTERNAL FUNCTIONS
-    // ═══════════════════════════════════════════════════════════════
-
-    function _track(address player, uint256 amount) internal {
-        if (!_known[player]) {
-            _known[player] = true;
-            players.push(player);
-            emit PlayerJoined(player);
-        }
-        epochVolume[xpEpochNow][player] += amount;
-        epochTotal[xpEpochNow]          += amount;
-    }
-
-    function _tickEpoch() internal {
-        if (block.timestamp < xpStart) return;
-        uint256 elapsed = (block.timestamp - xpStart) / WEEK;
-        if (elapsed > xpEpochNow) xpEpochNow = elapsed;
-    }
-
-    function _startNewRound(uint256 price) internal {
-        currentRound++;
-        rounds[currentRound] = Round({
-            startTime:  block.timestamp,
-            endTime:    block.timestamp + roundDuration,
-            startPrice: price,
-            endPrice:   0,
-            settled:    false,
-            outcome:    false
+  try {
+    // Batch load in chunks of 50
+    allPlayers = [];
+    const batchSize = 50;
+    for (let i = 0; i < total; i += batchSize) {
+      const limit = Math.min(batchSize, total - i);
+      const [addrs, xps] = await contract.getPlayersWithXp(i, limit);
+      for (let j = 0; j < addrs.length; j++) {
+        allPlayers.push({
+          address: addrs[j],
+          xp: parseFloat(ethers.utils.formatEther(xps[j]))
         });
-        emit RoundStarted(currentRound, price);
+      }
     }
 
-    function _safeETH(address to, uint256 amount) internal {
-        (bool ok, ) = to.call{value: amount}("");
-        require(ok, "ETH transfer failed");
-    }
+    // Sort by XP descending
+    allPlayers.sort((a, b) => b.xp - a.xp);
 
-    // ═══════════════════════════════════════════════════════════════
-    // ADMIN
-    // ═══════════════════════════════════════════════════════════════
+    // Add rank
+    allPlayers.forEach((p, i) => { p.rank = i + 1; });
 
-    function setRoundDuration(uint256 _d) external onlyOwner {
-        require(_d >= 60, "Min 60s");
-        roundDuration = _d;
-    }
-
-    function setPlatformFee(uint256 _f) external onlyOwner {
-        require(_f <= 500, "Max 5%");
-        platformFee = _f;
-    }
-
-    receive() external payable {}
+    filteredPlayers = [...allPlayers];
+    currentPage = 0;
+    renderPlayersTable();
+  } catch(e) {
+    document.getElementById('playersTableBody').innerHTML = '<div class="table-loading">Error loading players: ' + e.message + '</div>';
+  }
 }
+
+function renderPlayersTable() {
+  const start = currentPage * PAGE_SIZE;
+  const end   = Math.min(start + PAGE_SIZE, filteredPlayers.length);
+  const page  = filteredPlayers.slice(start, end);
+
+  if (page.length === 0) {
+    document.getElementById('playersTableBody').innerHTML = '<div class="table-loading">No players found</div>';
+    document.getElementById('tablePagination').style.display = 'none';
+    return;
+  }
+
+  const rows = page.map(p => {
+    const xpFmt = p.xp >= 1000 ? (p.xp/1000).toFixed(2)+'K' : p.xp.toFixed(2);
+    const rankBadge = p.rank === 1 ? `<span class="rank-badge rank-1">🥇 #1</span>`
+                    : p.rank === 2 ? `<span class="rank-badge rank-2">🥈 #2</span>`
+                    : p.rank === 3 ? `<span class="rank-badge rank-3">🥉 #3</span>`
+                    : `<span class="rank-badge rank-n">#${p.rank}</span>`;
+    return `<tr>
+      <td class="td-rank">${rankBadge}</td>
+      <td>
+        <div class="td-addr">${p.address.slice(0,6)}...${p.address.slice(-4)}</div>
+        <div class="td-addr-full">${p.address}</div>
+      </td>
+      <td class="td-xp">${xpFmt} XP</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('playersTableBody').innerHTML = `
+    <table class="players-table">
+      <thead><tr>
+        <th class="right" style="width:70px;">Rank</th>
+        <th>Wallet Address</th>
+        <th class="right">XP Balance</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+
+  // Pagination
+  const totalPages = Math.ceil(filteredPlayers.length / PAGE_SIZE);
+  document.getElementById('tablePagination').style.display = 'flex';
+  document.getElementById('pageInfo').innerText =
+    `Showing ${start+1}–${end} of ${filteredPlayers.length} players`;
+  document.getElementById('btnPrev').disabled = currentPage === 0;
+  document.getElementById('btnNext').disabled = currentPage >= totalPages - 1;
+}
+
+function changePage(delta) {
+  currentPage += delta;
+  renderPlayersTable();
+}
+
+function filterPlayers() {
+  const q = document.getElementById('playersSearch').value.toLowerCase();
+  filteredPlayers = q
+    ? allPlayers.filter(p => p.address.toLowerCase().includes(q))
+    : [...allPlayers];
+  currentPage = 0;
+  renderPlayersTable();
+}
+
+async function distributeXp() {
+  if (!contract) return;
+  const btn = document.getElementById('btnDistributeXp');
+  btn.disabled = true;
+  btn.innerText = '⏳ Distributing...';
+  try {
+    const tx = await contract.distributeXp();
+    await tx.wait();
+    alert('✓ XP distributed successfully!');
+    await loadAdminData();
+  } catch(e) {
+    alert('Distribution failed: ' + (e.reason || e.message));
+    btn.disabled = false;
+    btn.innerText = '✦ Distribute XP for Current Epoch';
+  }
+}
+
+function exportCSV() {
+  if (!allPlayers.length) { alert('No data to export'); return; }
+  const header = 'Rank,Address,XP Balance\n';
+  const rows = allPlayers.map(p => `${p.rank},${p.address},${p.xp.toFixed(18)}`).join('\n');
+  const blob = new Blob([header + rows], { type: 'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url;
+  a.download = `blockoracle_xp_${new Date().toISOString().split('T')[0]}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── Helpers ──────────────────────────────────────────
+function setStatus(text, type) {
+  const el = document.getElementById('roundStatus');
+  el.innerText = text; el.className = 'status-pill status-' + type;
+}
+
+function selectDuration(min, btn) {
+  selectedDuration = min;
+  document.querySelectorAll('.dur-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+function checkConnected() {
+  if (!user || !contract) { alert('Please connect your wallet first'); return false; }
+  return true;
+}
+
+// ── Init ─────────────────────────────────────────────
+tvWidget = new TradingView.widget({
+  container_id:'tv_chart', symbol:'BINANCE:BTCUSDT', interval:'1',
+  theme:'dark', width:'100%', height:'100%', autosize:true,
+  hide_side_toolbar:true, allow_symbol_change:false,
+});
+startPriceWebSocket();
+
+// ── Graffiti background ───────────────────────────────
+(function() {
+  const canvas = document.getElementById('graffiti-bg');
+  const ctx = canvas.getContext('2d');
+  const NEON = '#d5fd51'; const NEON2 = '#b8e530';
+  let seed = 42;
+  function srnd() { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; }
+  function srand(a, b) { return srnd() * (b - a) + a; }
+  function srandInt(a, b) { return Math.floor(srand(a, b+1)); }
+  function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; draw(); }
+  function drawSprayPaint(cx, x, y, radius, color, density) {
+    cx.save();
+    for (let i = 0; i < density; i++) {
+      const angle = srnd() * Math.PI * 2;
+      const r = Math.pow(srnd(), 0.5) * radius;
+      cx.globalAlpha = srand(0.02, 0.18);
+      cx.fillStyle = color;
+      cx.beginPath();
+      cx.arc(x + Math.cos(angle)*r, y + Math.sin(angle)*r, srand(0.5, 2.5), 0, Math.PI*2);
+      cx.fill();
+    }
+    cx.restore();
+  }
+  function drawGraffitiLetter(cx, x, y, letter, size, color, angle) {
+    cx.save(); cx.translate(x, y); cx.rotate(angle);
+    cx.font = `900 ${size}px 'Syne',sans-serif`;
+    cx.textAlign = 'center'; cx.textBaseline = 'middle';
+    drawSprayPaint(cx, 0, 0, size*0.7, color, 80);
+    cx.shadowColor = color; cx.shadowBlur = size*0.3;
+    cx.globalAlpha = 0.06; cx.fillStyle = color; cx.fillText(letter, 3, 6);
+    cx.globalAlpha = 0.18; cx.strokeStyle = color; cx.lineWidth = size*0.08; cx.lineJoin = 'round'; cx.strokeText(letter, 0, 0);
+    cx.globalAlpha = 0.09; cx.fillStyle = color; cx.fillText(letter, 0, 0);
+    const dc = srandInt(1, 3);
+    for (let d = 0; d < dc; d++) {
+      const dx = srand(-size*0.3, size*0.3);
+      const dl = srand(size*0.2, size*0.9);
+      const dw = srand(2, 6);
+      cx.globalAlpha = 0.12; cx.strokeStyle = color; cx.lineWidth = dw; cx.lineCap = 'round';
+      cx.beginPath(); cx.moveTo(dx, size*0.4);
+      cx.bezierCurveTo(dx+srand(-8,8), size*0.5+dl*0.3, dx+srand(-8,8), size*0.5+dl*0.7, dx+srand(-4,4), size*0.4+dl);
+      cx.stroke();
+    }
+    cx.restore();
+  }
+  function drawTag(cx, x, y, text, size, color, skew) {
+    cx.save(); cx.translate(x, y); cx.transform(1,0,skew,1,0,0);
+    let ox = 0;
+    for (const l of text.split('')) {
+      drawGraffitiLetter(cx, ox, srand(-size*0.15, size*0.15), l, size, color, srand(-0.15, 0.15));
+      ox += size * srand(0.55, 0.72);
+    }
+    cx.restore();
+  }
+  function drawHexagon(cx, x, y, r, color) {
+    cx.save(); cx.translate(x, y); cx.rotate(srnd()*Math.PI);
+    cx.globalAlpha = srand(0.04, 0.1); cx.strokeStyle = color;
+    cx.lineWidth = srand(1, 4); cx.shadowColor = color; cx.shadowBlur = 8;
+    cx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const a = (Math.PI/3)*i;
+      i===0 ? cx.moveTo(Math.cos(a)*r, Math.sin(a)*r) : cx.lineTo(Math.cos(a)*r, Math.sin(a)*r);
+    }
+    cx.closePath(); cx.stroke(); cx.restore();
+  }
+  function draw() {
+    const W = canvas.width, H = canvas.height; seed = 42;
+    ctx.clearRect(0,0,W,H);
+    const bg = ctx.createLinearGradient(0,0,W,H);
+    bg.addColorStop(0,'#0d1a0a'); bg.addColorStop(0.3,'#0a0f1a');
+    bg.addColorStop(0.6,'#130d1f'); bg.addColorStop(1,'#0a1410');
+    ctx.fillStyle = bg; ctx.fillRect(0,0,W,H);
+    const blobs = [
+      {x:W*0.08,y:H*0.15,r:W*0.22,c:'rgba(213,253,81,',a:0.13},
+      {x:W*0.85,y:H*0.75,r:W*0.28,c:'rgba(213,253,81,',a:0.10},
+      {x:W*0.5, y:H*0.5, r:W*0.35,c:'rgba(74,222,128,', a:0.07},
+      {x:W*0.9, y:H*0.1, r:W*0.18,c:'rgba(248,113,113,',a:0.10},
+      {x:W*0.1, y:H*0.85,r:W*0.20,c:'rgba(248,113,113,',a:0.08},
+    ];
+    for (const b of blobs) {
+      const g = ctx.createRadialGradient(b.x,b.y,0,b.x,b.y,b.r);
+      g.addColorStop(0,b.c+(b.a*2.5)+')'); g.addColorStop(0.4,b.c+b.a+')');
+      g.addColorStop(0.75,b.c+(b.a*0.3)+')'); g.addColorStop(1,b.c+'0)');
+      ctx.globalAlpha=1; ctx.fillStyle=g;
+      ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.fill();
+    }
+    for (let i = 0; i < 3000; i++) {
+      ctx.globalAlpha = srand(0.01, 0.05);
+      ctx.fillStyle = srnd()>0.6?'#ffffff':(srnd()>0.5?NEON:'#333');
+      ctx.fillRect(srnd()*W, srnd()*H, srand(0.5,2), srand(0.5,2));
+    }
+    drawTag(ctx, W*0.02, H*0.18, 'BLOCKORACLE', Math.min(W*0.075,90), NEON, -0.05);
+    drawTag(ctx, W*0.55, H*0.72, 'ROBINHOOD', Math.min(W*0.065,80), NEON2, 0.04);
+    drawTag(ctx, W*0.05, H*0.82, 'BTC', Math.min(W*0.1,120), NEON, -0.08);
+    drawTag(ctx, W*0.6, H*0.12, 'PREDICT', Math.min(W*0.055,70), 'rgba(255,255,255,0.5)', 0.06);
+    drawTag(ctx, W*0.3, H*0.45, 'WIN', Math.min(W*0.12,140), NEON2, -0.03);
+    drawTag(ctx, W*0.7, H*0.38, '0xCHAIN', Math.min(W*0.045,55), NEON, 0.03);
+    for (let i = 0; i < 14; i++) drawHexagon(ctx, srnd()*W, srnd()*H, srand(20,90), i%3===0?NEON:NEON2);
+    ctx.globalAlpha = 0.55; ctx.fillStyle = '#080808'; ctx.fillRect(0,0,W,H);
+    const vignette = ctx.createRadialGradient(W/2,H/2,H*0.2,W/2,H/2,H);
+    vignette.addColorStop(0,'rgba(0,0,0,0)'); vignette.addColorStop(0.7,'rgba(0,0,0,0.2)');
+    vignette.addColorStop(1,'rgba(0,0,0,0.75)');
+    ctx.globalAlpha=1; ctx.fillStyle=vignette; ctx.fillRect(0,0,W,H);
+  }
+  window.addEventListener('resize', resize);
+  document.fonts.ready.then(resize);
+  resize();
+})();
+</script>
+</body>
+</html>
