@@ -385,8 +385,8 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
           <input class="amount-input" id="amount" type="number" placeholder="0.0001" step="0.0001" min="0.0001"/>
           <span class="amount-suffix">ETH</span>
         </div>
-        <div class="dur-label">Duration</div>
-        <div class="dur-group" id="durGroup">
+        <div class="dur-label">Duration · <span id="durDisplay" style="color:var(--neon)">—</span> <span id="durOwnerNote" style="color:var(--text-muted);font-size:9px;display:none;">(owner only)</span></div>
+        <div class="dur-group" id="durGroup" style="display:none;">
           <button class="dur-btn active" onclick="selectDuration(60,this)">1m</button>
           <button class="dur-btn" onclick="selectDuration(120,this)">2m</button>
           <button class="dur-btn" onclick="selectDuration(180,this)">3m</button>
@@ -811,6 +811,20 @@ async function loadPlayerRound() {
     document.getElementById('round').innerText = roundId > 0 ? '#' + roundId : '—';
     updateLivePriceDisplay();
 
+    // Load real round duration from contract
+    try {
+      const dur = (await contract.roundDuration()).toNumber();
+      selectedDuration = dur;
+      const durLabel = dur < 60 ? dur + 's' : Math.round(dur/60) + 'm';
+      const dispEl = document.getElementById('durDisplay');
+      if (dispEl) dispEl.innerText = durLabel;
+      const isOwn = contractOwner && user && user.toLowerCase() === contractOwner.toLowerCase();
+      const durGroup = document.getElementById('durGroup');
+      const durNote  = document.getElementById('durOwnerNote');
+      if (durGroup) durGroup.style.display = isOwn ? 'flex' : 'none';
+      if (durNote)  durNote.style.display  = isOwn ? 'none' : 'inline';
+    } catch(e) {}
+
     const settleBtn = document.getElementById('btnSettle');
 
     // No rounds started yet
@@ -1147,8 +1161,9 @@ function addActiveBet(direction, amount, lockPrice) {
   // Use the actual contract endTime if available, else fallback to local estimate
   const endTime = contractRoundEndTime > 0
     ? contractRoundEndTime
-    : Math.floor(Date.now() / 1000) + selectedDuration * 60;
-  activeBets.push({ direction, amount, endTime, coin: selectedCoin, durationMin: selectedDuration, lockPrice: lockPrice || 0 });
+    : Math.floor(Date.now() / 1000) + selectedDuration;
+  const durMin = Math.round((endTime - Math.floor(Date.now()/1000)) / 60);
+  activeBets.push({ direction, amount, endTime, coin: selectedCoin, durationMin: durMin, lockPrice: lockPrice || 0 });
   renderBets();
   if (!betsRenderInterval) betsRenderInterval = setInterval(renderBets, 1000);
 }
