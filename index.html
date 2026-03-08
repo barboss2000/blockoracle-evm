@@ -270,8 +270,8 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
       </div>
       <a href="https://faucet.testnet.chain.robinhood.com/?error=undefined&address=0x6d4D522f22681b76483BF327ff7Bb6748a68Da5c&step=auth" target="_blank" class="btn-faucet">💧 Faucet</a>
       <div class="chain-badge">Robinhood Chain · 46630</div>
-      <button class="btn-connect" id="btnConnect" onclick="connect()">Connect Wallet</button>
-      <button class="btn-disconnect" id="btnDisconnect" onclick="disconnect()" title="Disconnect">✕</button>
+      <button class="btn-connect" id="btnConnect">Connect Wallet</button>
+      <button class="btn-disconnect" id="btnDisconnect" title="Disconnect">✕</button>
     </div>
   </header>
 
@@ -524,7 +524,14 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
 </div>
 
 <script>
-// Make all functions available globally before DOM parses
+// Bind buttons via DOMContentLoaded — works regardless of script parse order
+document.addEventListener('DOMContentLoaded', function() {
+  var btnC = document.getElementById('btnConnect');
+  var btnD = document.getElementById('btnDisconnect');
+  if (btnC) btnC.onclick = function() { connect(); };
+  if (btnD) btnD.onclick = function() { disconnect(); };
+});
+
 
 // ══════════════════════════════════════════════════════
 // CONTRACT CONFIG — новый адрес V5_XP
