@@ -632,11 +632,21 @@ function selectCoin(coin, el) {
 async function connect() {
   if (!window.ethereum) { alert("MetaMask not found!"); return; }
   try {
-    // Force wallet account picker to appear every time
-    await window.ethereum.request({
-      method: 'wallet_requestPermissions',
-      params: [{ eth_accounts: {} }]
-    });
+    // Force wallet account picker every time
+    try {
+      await window.ethereum.request({
+        method: 'wallet_requestPermissions',
+        params: [{ eth_accounts: {} }]
+      });
+    } catch(permErr) {
+      // Some wallets don't support wallet_requestPermissions
+      // Try to disconnect current session first
+      if (window.ethereum.selectedAddress) {
+        try {
+          await window.ethereum.request({ method: 'wallet_revokePermissions', params: [{ eth_accounts: {} }] });
+        } catch(e2) {}
+      }
+    }
     provider = new ethers.providers.Web3Provider(window.ethereum);
     await provider.send("eth_requestAccounts", []);
     const network = await provider.getNetwork();
@@ -797,6 +807,7 @@ async function loadPlayerRound() {
     const outcome    = r[5];
     const now        = Math.floor(Date.now() / 1000);
 
+    contractRoundEndTime = endTime;
     document.getElementById('round').innerText    = '#' + roundId;
     document.getElementById('lockPrice').innerText = startPrice > 0 ? '$' + startPrice.toLocaleString() : '—';
 
@@ -841,6 +852,10 @@ async function loadPlayerRound() {
       setStatus('Active', 'active');
       settleBtn.style.display = 'none';
       document.getElementById('resultBanner').className = 'result-banner';
+      // Sync activeBets endTime with contract endTime
+      if (hasBetThisRound && activeBets.length > 0) {
+        activeBets[activeBets.length - 1].endTime = endTime;
+      }
       startRoundTimer(endTime);
     }
 
@@ -995,8 +1010,14 @@ function startPriceWebSocket() {
 }
 
 // ── Active bets display ───────────────────────────────
+// contractRoundEndTime is set when we load the round from chain
+let contractRoundEndTime = 0;
+
 function addActiveBet(direction, amount) {
-  const endTime = Math.floor(Date.now() / 1000) + selectedDuration * 60;
+  // Use the actual contract endTime if available, else fallback to local estimate
+  const endTime = contractRoundEndTime > 0
+    ? contractRoundEndTime
+    : Math.floor(Date.now() / 1000) + selectedDuration * 60;
   activeBets.push({ direction, amount, endTime, coin: selectedCoin, durationMin: selectedDuration });
   renderBets();
   if (!betsRenderInterval) betsRenderInterval = setInterval(renderBets, 1000);
