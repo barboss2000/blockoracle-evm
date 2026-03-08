@@ -525,12 +525,7 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
 
 <script>
 // Bind buttons via DOMContentLoaded — works regardless of script parse order
-document.addEventListener('DOMContentLoaded', function() {
-  var btnC = document.getElementById('btnConnect');
-  var btnD = document.getElementById('btnDisconnect');
-  if (btnC) btnC.onclick = function() { connect(); };
-  if (btnD) btnD.onclick = function() { disconnect(); };
-});
+
 
 
 // ══════════════════════════════════════════════════════
@@ -1609,6 +1604,14 @@ startPriceWebSocket();
 // Expose to global scope for inline onclick handlers
 window.connect = connect;
 window.disconnect = disconnect;
+
+// Bind connect button — script runs after DOM so direct binding works here
+(function() {
+  var btnC = document.getElementById('btnConnect');
+  var btnD = document.getElementById('btnDisconnect');
+  if (btnC) btnC.onclick = connect;
+  if (btnD) btnD.onclick = disconnect;
+})();
 window.selectCoin = selectCoin;
 window.selectDuration = selectDuration;
 window.betUp = betUp;
