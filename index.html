@@ -575,6 +575,7 @@ let activeBets = [];
 let betsRenderInterval = null;
 let playerRoundStatus = 0;
 let hasBetThisRound = false;
+let playerBetRoundId = 0; // round ID on which user placed current bet
 let tvWidget = null;
 const priceCache = {};
 
@@ -632,21 +633,18 @@ function selectCoin(coin, el) {
 async function connect() {
   if (!window.ethereum) { alert("MetaMask not found!"); return; }
   try {
-    // Force wallet account picker every time
+    // Step 1: revoke existing permissions so MetaMask shows account picker
     try {
       await window.ethereum.request({
-        method: 'wallet_requestPermissions',
+        method: 'wallet_revokePermissions',
         params: [{ eth_accounts: {} }]
       });
-    } catch(permErr) {
-      // Some wallets don't support wallet_requestPermissions
-      // Try to disconnect current session first
-      if (window.ethereum.selectedAddress) {
-        try {
-          await window.ethereum.request({ method: 'wallet_revokePermissions', params: [{ eth_accounts: {} }] });
-        } catch(e2) {}
-      }
-    }
+    } catch(e) { /* not all wallets support this, ignore */ }
+    // Step 2: request permissions fresh — this always opens the account picker
+    await window.ethereum.request({
+      method: 'wallet_requestPermissions',
+      params: [{ eth_accounts: {} }]
+    });
     provider = new ethers.providers.Web3Provider(window.ethereum);
     await provider.send("eth_requestAccounts", []);
     const network = await provider.getNetwork();
@@ -811,10 +809,18 @@ async function loadPlayerRound() {
     document.getElementById('round').innerText    = '#' + roundId;
     document.getElementById('lockPrice').innerText = startPrice > 0 ? '$' + startPrice.toLocaleString() : '—';
 
-    // Check user's bets
+    // Check user's bets in current round
     const upBet   = await contract.upBets(roundId, ethers.constants.AddressZero, user);
     const downBet = await contract.downBets(roundId, ethers.constants.AddressZero, user);
-    hasBetThisRound = upBet.gt(0) || downBet.gt(0);
+    const userHasBetInCurrentRound = upBet.gt(0) || downBet.gt(0);
+    // Only update hasBetThisRound if we're tracking this round
+    if (userHasBetInCurrentRound) {
+      playerBetRoundId = roundId;
+      hasBetThisRound = true;
+    } else if (playerBetRoundId !== roundId) {
+      // User hasn't bet in this round yet
+      hasBetThisRound = false;
+    }
 
     const settleBtn = document.getElementById('btnSettle');
 
@@ -848,15 +854,28 @@ async function loadPlayerRound() {
       }
 
     } else {
-      playerRoundStatus = 1;
-      setStatus('Active', 'active');
-      settleBtn.style.display = 'none';
-      document.getElementById('resultBanner').className = 'result-banner';
-      // Sync activeBets endTime with contract endTime
-      if (hasBetThisRound && activeBets.length > 0) {
-        activeBets[activeBets.length - 1].endTime = endTime;
+      // Round is active on chain
+      if (userHasBetInCurrentRound) {
+        // User has bet in THIS round — show countdown
+        playerRoundStatus = 1;
+        setStatus('Active', 'active');
+        settleBtn.style.display = 'none';
+        document.getElementById('resultBanner').className = 'result-banner';
+        // Sync activeBets endTime with real contract endTime
+        if (activeBets.length > 0) {
+          activeBets[activeBets.length - 1].endTime = endTime;
+        }
+        startRoundTimer(endTime);
+      } else {
+        // New round started, user hasn't bet yet
+        playerRoundStatus = 1;
+        setStatus('Active', 'active');
+        settleBtn.style.display = 'none';
+        document.getElementById('resultBanner').className = 'result-banner';
+        document.getElementById('btnNewRound').style.display = 'none';
+        // Show remaining time so user knows how long they have to bet
+        startRoundTimer(endTime);
       }
-      startRoundTimer(endTime);
     }
 
     updateBetButtons();
@@ -934,6 +953,11 @@ async function _bet(direction) {
       : await contract.betDown({ value: val });
     await tx.wait();
     hasBetThisRound = true;
+    // Track which round user placed bet on
+    try {
+      const currentRoundId = (await contract.currentRound()).toNumber();
+      playerBetRoundId = currentRoundId;
+    } catch(e) {}
     addActiveBet(direction, amount);
     await loadPlayerRound();
     await loadUserXp(); // refresh XP after bet (volume counted)
@@ -1030,7 +1054,9 @@ function renderBets() {
   section.style.display = 'block';
   const now = Math.floor(Date.now() / 1000);
   list.innerHTML = activeBets.map(bet => {
-    const left = bet.endTime - now;
+    // Always use contractRoundEndTime if available (synced from chain)
+    const endTime = contractRoundEndTime > 0 ? contractRoundEndTime : bet.endTime;
+    const left = endTime - now;
     const timer = left > 0
       ? `<div class="bet-timer">${formatTime(left)}</div>`
       : `<div class="bet-timer expired">SETTLE</div>`;
