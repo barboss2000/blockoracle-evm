@@ -639,18 +639,13 @@ function selectCoin(coin, el) {
 async function connect() {
   if (!window.ethereum) { alert("MetaMask not found!"); return; }
   try {
-    // Step 1: revoke existing permissions so MetaMask shows account picker
-    try {
-      await window.ethereum.request({
-        method: 'wallet_revokePermissions',
-        params: [{ eth_accounts: {} }]
-      });
-    } catch(e) { /* not all wallets support this, ignore */ }
-    // Step 2: request permissions fresh — this always opens the account picker
+    // Force account picker: requestPermissions always shows account selection dialog
+    // We do NOT revoke first — that kills the provider and causes getNetwork() null error
     await window.ethereum.request({
       method: 'wallet_requestPermissions',
       params: [{ eth_accounts: {} }]
     });
+    // Re-create provider AFTER permissions granted
     provider = new ethers.providers.Web3Provider(window.ethereum);
     await provider.send("eth_requestAccounts", []);
     const network = await provider.getNetwork();
