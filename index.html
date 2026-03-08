@@ -1042,10 +1042,10 @@ async function _bet(direction) {
       alert('Could not fetch price. Try again.');
       updateBetButtons(); return;
     }
-    // V6: betUp(duration, price, asset) / betDown(duration, price, asset)
+    // V5_XP: betUp() / betDown() — no args, just ETH value
     const tx = direction === 'UP'
-      ? await contract.betUp(selectedDuration, coinLockPrice, selectedCoin, { value: val })
-      : await contract.betDown(selectedDuration, coinLockPrice, selectedCoin, { value: val });
+      ? await contract.betUp({ value: val })
+      : await contract.betDown({ value: val });
     await tx.wait();
     hasBetThisRound = true;
     document.getElementById('timeLeftSmall').innerText = '—';
