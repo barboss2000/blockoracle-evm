@@ -332,7 +332,7 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
             <div class="round-num" id="round">—</div>
           </div>
           <div style="text-align:center;">
-            <div class="round-label">Lock Price</div>
+            <div class="round-label" id="lockPriceLabel">Live Price</div>
             <div class="round-num" id="lockPrice">—</div>
           </div>
           <span id="roundStatus" class="status-pill status-waiting">—</span>
@@ -611,6 +611,12 @@ function selectCoin(coin, el) {
   } else {
     document.getElementById('chartPrice').innerText = '—';
   }
+  // Update live price display for newly selected coin
+  if (priceCache[coin] && priceCache[coin].raw > 0) {
+    document.getElementById('lockPrice').innerText = priceCache[coin].price;
+  } else {
+    document.getElementById('lockPrice').innerText = '—';
+  }
   document.getElementById('tv_chart').innerHTML = '';
   tvWidget = new TradingView.widget({
     container_id: 'tv_chart', symbol: cfg.symbol, interval: '1',
@@ -807,7 +813,8 @@ async function loadPlayerRound() {
 
     contractRoundEndTime = endTime;
     document.getElementById('round').innerText    = '#' + roundId;
-    document.getElementById('lockPrice').innerText = startPrice > 0 ? '$' + startPrice.toLocaleString() : '—';
+    // Always show live price of SELECTED coin (not BTC contract startPrice)
+    updateLivePriceDisplay();
 
     // Check user's bets in current round
     const upBet   = await contract.upBets(roundId, ethers.constants.AddressZero, user);
@@ -958,7 +965,7 @@ async function _bet(direction) {
       const currentRoundId = (await contract.currentRound()).toNumber();
       playerBetRoundId = currentRoundId;
     } catch(e) {}
-    addActiveBet(direction, amount);
+    addActiveBet(direction, amount, coinLockPrice);
     await loadPlayerRound();
     await loadUserXp(); // refresh XP after bet (volume counted)
   } catch(e) {
@@ -1027,6 +1034,10 @@ function startPriceWebSocket() {
       document.getElementById('chartPrice').innerText = '$'+fmt;
       const changeEl = document.getElementById('chartChange');
       changeEl.innerText = changeStr; changeEl.className = 'chart-change '+dir;
+      // Keep live price updated in the Lock Price / Live Price field
+      if (contract && user) {
+        document.getElementById('lockPrice').innerText = '$'+fmt;
+      }
     }
   };
   ws.onclose = () => setTimeout(startPriceWebSocket, 3000);
@@ -1037,12 +1048,12 @@ function startPriceWebSocket() {
 // contractRoundEndTime is set when we load the round from chain
 let contractRoundEndTime = 0;
 
-function addActiveBet(direction, amount) {
+function addActiveBet(direction, amount, lockPrice) {
   // Use the actual contract endTime if available, else fallback to local estimate
   const endTime = contractRoundEndTime > 0
     ? contractRoundEndTime
     : Math.floor(Date.now() / 1000) + selectedDuration * 60;
-  activeBets.push({ direction, amount, endTime, coin: selectedCoin, durationMin: selectedDuration });
+  activeBets.push({ direction, amount, endTime, coin: selectedCoin, durationMin: selectedDuration, lockPrice: lockPrice || 0 });
   renderBets();
   if (!betsRenderInterval) betsRenderInterval = setInterval(renderBets, 1000);
 }
@@ -1065,7 +1076,7 @@ function renderBets() {
       <span class="bet-dir-badge ${dc}">${bet.direction}</span>
       <div class="bet-info">
         <div class="bet-amount">${parseFloat(bet.amount).toFixed(4)} ETH</div>
-        <div class="bet-meta">${bet.coin} · ${bet.durationMin}m</div>
+        <div class="bet-meta">${bet.coin} · ${bet.durationMin}m${bet.lockPrice ? " · Lock $" + bet.lockPrice.toLocaleString() : ""}</div>
       </div>${timer}</div>`;
   }).join('');
 }
@@ -1286,6 +1297,18 @@ function exportCSV() {
 }
 
 // ── Helpers ──────────────────────────────────────────
+function updateLivePriceDisplay() {
+  const el = document.getElementById('lockPrice');
+  if (priceCache[selectedCoin] && priceCache[selectedCoin].raw > 0) {
+    el.innerText = priceCache[selectedCoin].price;
+  } else {
+    // Fetch price async and update
+    fetchCoinPrice(selectedCoin).then(p => {
+      el.innerText = '$' + p.toLocaleString();
+    }).catch(() => {});
+  }
+}
+
 function setStatus(text, type) {
   const el = document.getElementById('roundStatus');
   el.innerText = text; el.className = 'status-pill status-' + type;
