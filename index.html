@@ -632,6 +632,11 @@ function selectCoin(coin, el) {
 async function connect() {
   if (!window.ethereum) { alert("MetaMask not found!"); return; }
   try {
+    // Force wallet account picker to appear every time
+    await window.ethereum.request({
+      method: 'wallet_requestPermissions',
+      params: [{ eth_accounts: {} }]
+    });
     provider = new ethers.providers.Web3Provider(window.ethereum);
     await provider.send("eth_requestAccounts", []);
     const network = await provider.getNetwork();
@@ -800,28 +805,43 @@ async function loadPlayerRound() {
     const downBet = await contract.downBets(roundId, ethers.constants.AddressZero, user);
     hasBetThisRound = upBet.gt(0) || downBet.gt(0);
 
+    const settleBtn = document.getElementById('btnSettle');
+
     if (settled) {
       playerRoundStatus = 3;
       setStatus('Settled', 'waiting');
       if (roundTimerInterval) { clearInterval(roundTimerInterval); roundTimerInterval = null; }
       document.getElementById('timeLeftSmall').innerText = '—';
+      settleBtn.style.display = 'none';
       const banner = document.getElementById('resultBanner');
       banner.className = 'result-banner show ' + (outcome ? 'up-won' : 'down-won');
       banner.innerHTML = outcome
         ? `▲ UP WON · Close $${endPrice.toLocaleString()}`
         : `▼ DOWN WON · Close $${endPrice.toLocaleString()}`;
       document.getElementById('btnNewRound').style.display = 'block';
-    } else if (now < endTime) {
-      playerRoundStatus = 1;
-      setStatus('Active', 'active');
-      startRoundTimer(endTime);
-      document.getElementById('resultBanner').className = 'result-banner';
-    } else {
+
+    } else if (now >= endTime) {
       playerRoundStatus = 2;
       setStatus('Ended', 'ended');
       document.getElementById('timeLeftSmall').innerText = '—';
       if (roundTimerInterval) { clearInterval(roundTimerInterval); roundTimerInterval = null; }
-      document.getElementById('btnSettle').style.display = 'block';
+      document.getElementById('resultBanner').className = 'result-banner';
+      if (hasBetThisRound) {
+        settleBtn.style.display = 'block';
+        settleBtn.disabled = false;
+      } else {
+        settleBtn.style.display = 'none';
+      }
+      if (user && contractOwner && user.toLowerCase() === contractOwner.toLowerCase()) {
+        await autoSettle();
+      }
+
+    } else {
+      playerRoundStatus = 1;
+      setStatus('Active', 'active');
+      settleBtn.style.display = 'none';
+      document.getElementById('resultBanner').className = 'result-banner';
+      startRoundTimer(endTime);
     }
 
     updateBetButtons();
@@ -841,8 +861,14 @@ function startRoundTimer(endTime) {
     } else {
       document.getElementById('timeLeftSmall').innerText = '—';
       clearInterval(roundTimerInterval); roundTimerInterval = null;
+      playerRoundStatus = 2;
       setStatus('Ended', 'ended');
-      document.getElementById('btnSettle').style.display = 'block';
+      // Only show Settle button if user placed a bet
+      if (hasBetThisRound) {
+        const sb = document.getElementById('btnSettle');
+        sb.style.display = 'block';
+        sb.disabled = false;
+      }
       updateBetButtons();
       if (user && contractOwner && user.toLowerCase() === contractOwner.toLowerCase()) {
         await autoSettle();
