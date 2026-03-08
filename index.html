@@ -806,64 +806,45 @@ function startXpCountdown(nextDropTs) {
 async function loadPlayerRound() {
   if (!contract || !user) return;
   try {
-    // V6: each player has their own round
-    const r = await contract.getPlayerRound(user);
-    // r: [roundId, asset, startTime, endTime, startPrice, endPrice, betAmount, direction, status, outcome]
-    const roundId    = r[0].toNumber();
-    const asset      = r[1];
-    const startTime  = r[2].toNumber();
-    const endTime    = r[3].toNumber();
-    const startPrice = r[4].toNumber();
-    const endPrice   = r[5].toNumber();
-    const betAmount  = r[6];
-    const direction  = r[7]; // 1=UP, 2=DOWN
-    const status     = r[8]; // 0=EMPTY, 1=ACTIVE, 2=SETTLED
-    const outcome    = r[9];
-    const now        = Math.floor(Date.now() / 1000);
-
-    // Compatibility vars
-    const settled = status === 2;
-    playerRoundStatus = status;
-    hasBetThisRound = status === 1 || status === 2;
-    if (status === 1) playerBetRoundId = roundId;
-
-    contractRoundEndTime = endTime;
-
+    // V5_XP: read currentRound, then round data + user bets
+    const roundId = (await contract.currentRound()).toNumber();
     document.getElementById('round').innerText = roundId > 0 ? '#' + roundId : '—';
-
-    // Show live selected coin price
     updateLivePriceDisplay();
 
     const settleBtn = document.getElementById('btnSettle');
 
-    const r = await contract.rounds(roundId);
-    const startTime  = r[0].toNumber();
-    const endTime    = r[1].toNumber();
-    const startPrice = r[2].toNumber();
-    const endPrice   = r[3].toNumber();
-    const settled    = r[4];
-    const outcome    = r[5];
-    const now        = Math.floor(Date.now() / 1000);
-
-    contractRoundEndTime = endTime;
-    document.getElementById('round').innerText    = '#' + roundId;
-    // Always show live price of SELECTED coin (not BTC contract startPrice)
-    updateLivePriceDisplay();
-
-    // Check user's bets in current round
-    const upBet   = await contract.upBets(roundId, ethers.constants.AddressZero, user);
-    const downBet = await contract.downBets(roundId, ethers.constants.AddressZero, user);
-    const userHasBetInCurrentRound = upBet.gt(0) || downBet.gt(0);
-    // Only update hasBetThisRound if we're tracking this round
-    if (userHasBetInCurrentRound) {
-      playerBetRoundId = roundId;
-      hasBetThisRound = true;
-    } else if (playerBetRoundId !== roundId) {
-      // User hasn't bet in this round yet
+    // No rounds started yet
+    if (roundId === 0) {
+      playerRoundStatus = 0;
+      setStatus('Waiting', 'waiting');
       hasBetThisRound = false;
+      settleBtn.style.display = 'none';
+      document.getElementById('timeLeftSmall').innerText = '—';
+      updateBetButtons();
+      return;
     }
 
-    const settleBtn = document.getElementById('btnSettle');
+    // Read round data: [startTime, endTime, startPrice, endPrice, settled, outcome]
+    const rd = await contract.rounds(roundId);
+    const endTime    = rd[1].toNumber();
+    const endPrice   = rd[3].toNumber();
+    const settled    = rd[4];
+    const outcome    = rd[5];
+    const now        = Math.floor(Date.now() / 1000);
+
+    contractRoundEndTime = endTime;
+
+    // Check user bets in current round
+    const upBet   = await contract.upBets(roundId, ethers.constants.AddressZero, user);
+    const downBet = await contract.downBets(roundId, ethers.constants.AddressZero, user);
+    const userBetInThisRound = upBet.gt(0) || downBet.gt(0);
+
+    if (userBetInThisRound) {
+      playerBetRoundId = roundId;
+      hasBetThisRound  = true;
+    } else if (playerBetRoundId !== roundId) {
+      hasBetThisRound = false;
+    }
 
     if (settled) {
       playerRoundStatus = 3;
@@ -872,18 +853,15 @@ async function loadPlayerRound() {
       document.getElementById('timeLeftSmall').innerText = '—';
       settleBtn.style.display = 'none';
       const banner = document.getElementById('resultBanner');
-      // Show result only if user had a bet in THIS round
       if (playerBetRoundId === roundId && hasBetThisRound) {
         banner.className = 'result-banner show ' + (outcome ? 'up-won' : 'down-won');
         banner.innerHTML = outcome
           ? `▲ UP WON · Close $${endPrice.toLocaleString()}`
           : `▼ DOWN WON · Close $${endPrice.toLocaleString()}`;
         document.getElementById('btnNewRound').style.display = 'block';
-        document.getElementById('btnNewRound').innerText = '▶ Ready for Next Round';
+        document.getElementById('btnNewRound').innerText = '▶ Start Next Round';
       } else {
         banner.className = 'result-banner';
-        // New round should be starting automatically — reload shortly
-        setTimeout(loadPlayerRound, 2000);
       }
 
     } else if (now >= endTime) {
@@ -892,40 +870,24 @@ async function loadPlayerRound() {
       document.getElementById('timeLeftSmall').innerText = '—';
       if (roundTimerInterval) { clearInterval(roundTimerInterval); roundTimerInterval = null; }
       document.getElementById('resultBanner').className = 'result-banner';
-      if (hasBetThisRound) {
+      if (user && contractOwner && user.toLowerCase() === contractOwner.toLowerCase()) {
         settleBtn.style.display = 'block';
         settleBtn.disabled = false;
       } else {
-        // No bet in this round — show Start New Round right away
         settleBtn.style.display = 'none';
-        document.getElementById('btnNewRound').style.display = 'block';
-      }
-      if (user && contractOwner && user.toLowerCase() === contractOwner.toLowerCase()) {
-        await autoSettle();
       }
 
     } else {
-      // Round is active on chain
-      if (userHasBetInCurrentRound) {
-        // User has bet in THIS round — don't show "Round Ends In" timer, hide it
-        playerRoundStatus = 1;
-        setStatus('Active', 'active');
-        settleBtn.style.display = 'none';
-        document.getElementById('resultBanner').className = 'result-banner';
+      playerRoundStatus = 1;
+      setStatus('Active', 'active');
+      settleBtn.style.display = 'none';
+      document.getElementById('resultBanner').className = 'result-banner';
+      document.getElementById('btnNewRound').style.display = 'none';
+      if (hasBetThisRound) {
         document.getElementById('timeLeftSmall').innerText = '—';
-        // Sync activeBets endTime with real contract endTime (for My Active Bets timer)
-        if (activeBets.length > 0) {
-          activeBets[activeBets.length - 1].endTime = endTime;
-        }
-        // Still run interval internally to detect when round ends
+        if (activeBets.length > 0) activeBets[activeBets.length-1].endTime = endTime;
         startRoundTimer(endTime);
       } else {
-        // User hasn't bet yet — show countdown so they know how long they have
-        playerRoundStatus = 1;
-        setStatus('Active', 'active');
-        settleBtn.style.display = 'none';
-        document.getElementById('resultBanner').className = 'result-banner';
-        document.getElementById('btnNewRound').style.display = 'none';
         startRoundTimer(endTime);
       }
     }
@@ -1110,13 +1072,7 @@ async function settle() {
   if (!checkConnected()) return;
   document.getElementById('btnSettle').disabled = true;
   try {
-    // V6: get asset from player's round, fetch that asset's price
-    let asset = selectedCoin;
-    try {
-      const r = await contract.getPlayerRound(user);
-      if (r[1] && r[1].length > 0) asset = r[1];
-    } catch(e) {}
-    const closePrice = await fetchCoinPrice(asset);
+    const closePrice = await fetchCoinPrice(selectedCoin);
     const tx = await contract.settle(closePrice);
     await tx.wait();
     document.getElementById('btnSettle').style.display = 'none';
@@ -1128,12 +1084,9 @@ async function settle() {
 }
 
 async function autoSettle() {
-  // V6: owner uses settleFor(player, price) — but in V6 player settles themselves
-  // Auto-settle is just a helper if owner wants to help
+  // V5_XP: owner calls settle(price) when round ends
   try {
-    const r = await contract.getPlayerRound(user);
-    const asset = r[1] || selectedCoin;
-    const closePrice = await fetchCoinPrice(asset || selectedCoin);
+    const closePrice = await fetchCoinPrice(selectedCoin);
     const tx = await contract.settle(closePrice);
     await tx.wait();
     document.getElementById('btnSettle').style.display = 'none';
@@ -1147,12 +1100,12 @@ const CG_IDS = { BTC:'bitcoin', ETH:'ethereum', BNB:'binancecoin', SOL:'solana',
 async function fetchCoinPrice(coin) {
   if (priceCache[coin] && priceCache[coin].raw > 0) return Math.round(priceCache[coin].raw);
   try {
-    const r = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${COINS[coin].binance}`);
-    if (r.ok) { const d = await r.json(); const p = Math.round(parseFloat(d.price)); if (p > 0) return p; }
+    const r1 = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${COINS[coin].binance}`);
+    if (r1.ok) { const d = await r1.json(); const p = Math.round(parseFloat(d.price)); if (p > 0) return p; }
   } catch(e) {}
   try {
-    const r = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${CG_IDS[coin]}&vs_currencies=usd`);
-    if (r.ok) { const d = await r.json(); return Math.round(d[CG_IDS[coin]].usd); }
+    const r2 = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${CG_IDS[coin]}&vs_currencies=usd`);
+    if (r2.ok) { const d = await r2.json(); return Math.round(d[CG_IDS[coin]].usd); }
   } catch(e) {}
   throw new Error('All price sources failed for ' + coin);
 }
