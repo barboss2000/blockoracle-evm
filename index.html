@@ -791,8 +791,12 @@ async function loadPlayerRound() {
   try {
     const roundId = (await contract.currentRound()).toNumber();
     if (roundId === 0) {
-      setStatus('Ready', 'waiting');
+      setStatus('Waiting', 'waiting');
       document.getElementById('round').innerText = '—';
+      document.getElementById('lockPrice').innerText = '—';
+      document.getElementById('timeLeftSmall').innerText = '—';
+      document.getElementById('betHint').innerText = 'Waiting for owner to start first round';
+      document.getElementById('betHint').style.color = 'var(--text-muted)';
       updateBetButtons();
       return;
     }
@@ -833,11 +837,19 @@ async function loadPlayerRound() {
       document.getElementById('timeLeftSmall').innerText = '—';
       settleBtn.style.display = 'none';
       const banner = document.getElementById('resultBanner');
-      banner.className = 'result-banner show ' + (outcome ? 'up-won' : 'down-won');
-      banner.innerHTML = outcome
-        ? `▲ UP WON · Close $${endPrice.toLocaleString()}`
-        : `▼ DOWN WON · Close $${endPrice.toLocaleString()}`;
-      document.getElementById('btnNewRound').style.display = 'block';
+      // Show result only if user had a bet in THIS round
+      if (playerBetRoundId === roundId && hasBetThisRound) {
+        banner.className = 'result-banner show ' + (outcome ? 'up-won' : 'down-won');
+        banner.innerHTML = outcome
+          ? `▲ UP WON · Close $${endPrice.toLocaleString()}`
+          : `▼ DOWN WON · Close $${endPrice.toLocaleString()}`;
+        document.getElementById('btnNewRound').style.display = 'block';
+        document.getElementById('btnNewRound').innerText = '▶ Ready for Next Round';
+      } else {
+        banner.className = 'result-banner';
+        // New round should be starting automatically — reload shortly
+        setTimeout(loadPlayerRound, 2000);
+      }
 
     } else if (now >= endTime) {
       playerRoundStatus = 2;
@@ -849,7 +861,9 @@ async function loadPlayerRound() {
         settleBtn.style.display = 'block';
         settleBtn.disabled = false;
       } else {
+        // No bet in this round — show Start New Round right away
         settleBtn.style.display = 'none';
+        document.getElementById('btnNewRound').style.display = 'block';
       }
       if (user && contractOwner && user.toLowerCase() === contractOwner.toLowerCase()) {
         await autoSettle();
@@ -905,11 +919,14 @@ function startRoundTimer(endTime) {
       clearInterval(roundTimerInterval); roundTimerInterval = null;
       playerRoundStatus = 2;
       setStatus('Ended', 'ended');
-      // Only show Settle button if user placed a bet
       if (hasBetThisRound) {
+        // User bet — show Settle button
         const sb = document.getElementById('btnSettle');
         sb.style.display = 'block';
         sb.disabled = false;
+      } else {
+        // No bet — show Start New Round immediately
+        document.getElementById('btnNewRound').style.display = 'block';
       }
       updateBetButtons();
       if (user && contractOwner && user.toLowerCase() === contractOwner.toLowerCase()) {
@@ -920,28 +937,43 @@ function startRoundTimer(endTime) {
 }
 
 function startNewRound() {
+  // Reset UI state — new round will be started by owner via settle()
   document.getElementById('payoutBanner').className = 'payout-banner';
   document.getElementById('btnNewRound').style.display = 'none';
   document.getElementById('resultBanner').className = 'result-banner';
-  playerRoundStatus = 0; hasBetThisRound = false;
-  setStatus('Ready', 'waiting');
-  updateBetButtons();
+  hasBetThisRound = false;
+  playerBetRoundId = 0;
+  activeBets = [];
+  renderBets();
+  // Reload round state from chain
+  loadPlayerRound();
 }
 
 function updateBetButtons() {
   const connected = !!user && !!contract;
+  // Can only bet when round is ACTIVE (status=1) and haven't bet yet
   const canBet = connected && playerRoundStatus === 1 && !hasBetThisRound;
-  const canStart = connected && (playerRoundStatus === 0 || playerRoundStatus === 3);
-  document.getElementById('btnUp').disabled   = !(canBet || canStart);
-  document.getElementById('btnDown').disabled = !(canBet || canStart);
+  document.getElementById('btnUp').disabled   = !canBet;
+  document.getElementById('btnDown').disabled = !canBet;
   const hint = document.getElementById('betHint');
-  if (connected && hasBetThisRound && playerRoundStatus === 1) {
+  if (!connected) {
+    hint.innerText = '';
+  } else if (hasBetThisRound && playerRoundStatus === 1) {
     hint.innerText = '✓ Bet placed — waiting for round to end';
     hint.style.color = 'var(--up)';
-  } else if (connected && playerRoundStatus === 0) {
-    hint.innerText = 'Bet to start a new round';
+  } else if (playerRoundStatus === 1 && !hasBetThisRound) {
+    hint.innerText = 'Round is active — place your bet!';
+    hint.style.color = 'var(--neon)';
+  } else if (playerRoundStatus === 2) {
+    hint.innerText = 'Round ended — waiting for settlement';
     hint.style.color = 'var(--text-muted)';
-  } else { hint.innerText = ''; }
+  } else if (playerRoundStatus === 3) {
+    hint.innerText = 'Round settled — new round starting soon';
+    hint.style.color = 'var(--text-muted)';
+  } else {
+    hint.innerText = 'Waiting for owner to start a round';
+    hint.style.color = 'var(--text-muted)';
+  }
 }
 
 // ── Betting ──────────────────────────────────────────
@@ -956,23 +988,30 @@ async function _bet(direction) {
   document.getElementById('btnDown').disabled = true;
   try {
     const val = ethers.utils.parseEther(amount);
+    // Get lock price for display
+    let coinLockPrice = 0;
+    try { coinLockPrice = await fetchCoinPrice(selectedCoin); } catch(e) {}
+    // Place bet — contract manages rounds automatically
     const tx = direction === 'UP'
       ? await contract.betUp({ value: val })
       : await contract.betDown({ value: val });
     await tx.wait();
     hasBetThisRound = true;
-    // Hide "Round Ends In" timer — bet placed, no need to show time pressure
     document.getElementById('timeLeftSmall').innerText = '—';
-    // Track which round user placed bet on
     try {
-      const currentRoundId = (await contract.currentRound()).toNumber();
-      playerBetRoundId = currentRoundId;
+      const rid = (await contract.currentRound()).toNumber();
+      playerBetRoundId = rid;
     } catch(e) {}
     addActiveBet(direction, amount, coinLockPrice);
     await loadPlayerRound();
-    await loadUserXp(); // refresh XP after bet (volume counted)
+    await loadUserXp();
   } catch(e) {
-    alert('Bet failed: ' + (e.reason || e.message));
+    const msg = e.reason || e.message || '';
+    if (msg.includes('Round ended') || msg.includes('ended')) {
+      alert('Round has ended. Waiting for owner to settle and start next round.');
+    } else {
+      alert('Bet failed: ' + msg);
+    }
   } finally { updateBetButtons(); }
 }
 
@@ -998,6 +1037,7 @@ async function autoSettle() {
     const tx = await contract.settle(closePrice);
     await tx.wait();
     document.getElementById('btnSettle').style.display = 'none';
+    document.getElementById('btnNewRound').style.display = 'block';
     await loadPlayerRound();
   } catch(e) { console.error('Auto-settle:', e.message); }
 }
