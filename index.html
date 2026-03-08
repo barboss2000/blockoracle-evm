@@ -270,7 +270,7 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
       </div>
       <a href="https://faucet.testnet.chain.robinhood.com/?error=undefined&address=0x6d4D522f22681b76483BF327ff7Bb6748a68Da5c&step=auth" target="_blank" class="btn-faucet">💧 Faucet</a>
       <div class="chain-badge">Robinhood Chain · 46630</div>
-      <button class="btn-connect" id="btnConnect" onclick="connect()">Connect Wallet</button>
+      <button class="btn-connect" id="btnConnect">Connect Wallet</button>
       <button class="btn-disconnect" id="btnDisconnect" onclick="disconnect()" title="Disconnect">✕</button>
     </div>
   </header>
@@ -572,7 +572,7 @@ const abi = [
   "function distributeXp() external"
 ];
 
-let provider, signer, contract, user, contractOwner;
+let provider, signer, contract, user, contractOwner, ethProvider;
 let roundTimerInterval = null;
 let selectedDuration = 60; // seconds
 let selectedCoin = 'BTC';
@@ -642,24 +642,36 @@ function selectCoin(coin, el) {
 
 // ── Connect wallet ───────────────────────────────────
 async function connect() {
-  if (!window.ethereum) { alert("MetaMask not found!"); return; }
+  // Pick the right provider — handle MetaMask + Backpack conflict
+  ethProvider = null;
+  if (window.ethereum?.providers?.length) {
+    // Multiple wallets injected — prefer MetaMask
+    ethProvider = window.ethereum.providers.find(p => p.isMetaMask && !p.isBackpack)
+              || window.ethereum.providers.find(p => p.isMetaMask)
+              || window.ethereum.providers[0];
+  } else if (window.ethereum) {
+    ethProvider = window.ethereum;
+  }
+  if (!ethProvider) { alert("No wallet found! Please install MetaMask."); return; }
+
   try {
-    // Force account picker: requestPermissions always shows account selection dialog
-    // We do NOT revoke first — that kills the provider and causes getNetwork() null error
-    await window.ethereum.request({
-      method: 'wallet_requestPermissions',
-      params: [{ eth_accounts: {} }]
-    });
-    // Re-create provider AFTER permissions granted
-    provider = new ethers.providers.Web3Provider(window.ethereum);
+    // Force account picker
+    try {
+      await ethProvider.request({
+        method: 'wallet_requestPermissions',
+        params: [{ eth_accounts: {} }]
+      });
+    } catch(e) { /* ignore if not supported */ }
+
+    provider = new ethers.providers.Web3Provider(ethProvider);
     await provider.send("eth_requestAccounts", []);
     const network = await provider.getNetwork();
     if (network.chainId !== CHAIN_ID) {
       try {
-        await window.ethereum.request({ method:'wallet_switchEthereumChain', params:[{chainId:CHAIN_CONFIG.chainId}] });
+        await ethProvider.request({ method:'wallet_switchEthereumChain', params:[{chainId:CHAIN_CONFIG.chainId}] });
       } catch(e) {
         if (e.code === 4902) {
-          await window.ethereum.request({ method:'wallet_addEthereumChain', params:[CHAIN_CONFIG] });
+          await ethProvider.request({ method:'wallet_addEthereumChain', params:[CHAIN_CONFIG] });
         } else { alert("Could not switch chain"); return; }
       }
       provider = new ethers.providers.Web3Provider(window.ethereum);
@@ -692,8 +704,8 @@ async function connect() {
     await loadPlayerRound();
     setInterval(loadPlayerRound, 8000);
 
-    window.ethereum.on('accountsChanged', () => disconnect());
-    window.ethereum.on('chainChanged', () => location.reload());
+    ethProvider.on('accountsChanged', () => disconnect());
+    ethProvider.on('chainChanged', () => location.reload());
 
   } catch(e) { alert("Connection error: " + e.message); }
 }
@@ -1474,6 +1486,14 @@ tvWidget = new TradingView.widget({
   hide_side_toolbar:true, allow_symbol_change:false,
 });
 startPriceWebSocket();
+
+// Bind connect button safely after DOM ready (avoids "not defined" in strict contexts)
+window.addEventListener('load', function() {
+  const btn = document.getElementById('btnConnect');
+  if (btn) btn.addEventListener('click', connect);
+  const btnD = document.getElementById('btnDisconnect');
+  if (btnD) btnD.addEventListener('click', disconnect);
+});
 
 // ── Graffiti background ───────────────────────────────
 (function() {
