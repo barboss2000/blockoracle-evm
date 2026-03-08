@@ -527,7 +527,7 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
 // ══════════════════════════════════════════════════════
 // CONTRACT CONFIG — новый адрес V5_XP
 // ══════════════════════════════════════════════════════
-const CONTRACT_ADDRESS = "0xd48f1Dc3dE6EcbC2B58e041f9Ed60deBf1e234d6";
+const CONTRACT_ADDRESS = "0x6eC4ddf03646851224b7Cc0a1628b59923Fb92F8";
 const CHAIN_ID = 46630;
 const CHAIN_CONFIG = {
   chainId: '0x' + CHAIN_ID.toString(16),
@@ -539,28 +539,26 @@ const CHAIN_CONFIG = {
 
 // ABI: оригинальные функции V5 + новые XP функции
 const abi = [
-  // PredictionMarketV5_XP — ETH bets
-  "function betUp() payable",
-  "function betDown() payable",
-  // Start round (any player)
-  "function startRound(uint256) external",
-  // Settle (owner only)
-  "function settle(uint256) external",
-  // Claim winnings
-  "function claim(uint256,address) external",
-  // View
+  // V6 — per-player rounds
+  "function placeBet(uint256,uint256,string,bool) payable",
+  "function settle(address,uint256)",
+  "function claimRefund()",
+  "function getPlayerRound(address) view returns(uint256,uint256,uint256,uint256,uint256,uint256,string,uint8,uint8,bool)",
+  "function getAllowedDurations() view returns(uint256[])",
+  "function balanceInfo() view returns(uint256,uint256)",
+  "function liquidityPool() view returns(uint256)",
+  "function payoutMultiplier() view returns(uint256)",
+  "function minBet() view returns(uint256)",
+  "function maxBet() view returns(uint256)",
   "function owner() view returns(address)",
-  "function currentRound() view returns(uint256)",
-  "function roundDuration() view returns(uint256)",
   "function platformFee() view returns(uint256)",
-  "function rounds(uint256) view returns(uint256,uint256,uint256,uint256,bool,bool)",
-  "function pools(uint256,address) view returns(uint256,uint256)",
-  "function upBets(uint256,address,address) view returns(uint256)",
-  "function downBets(uint256,address,address) view returns(uint256)",
-  // Admin
-  "function setRoundDuration(uint256) external",
-  "function setPlatformFee(uint256) external",
-  // XP system
+  "function depositLiquidity() payable",
+  "function withdrawLiquidity(uint256)",
+  "function setPlatformFee(uint256)",
+  "function setPayoutMultiplier(uint256)",
+  "function setAllowedDurations(uint256[])",
+  "function setMinMaxBet(uint256,uint256)",
+  // XP
   "function xpBalance(address) view returns(uint256)",
   "function xpGiven() view returns(uint256)",
   "function xpEpochsDone() view returns(uint256)",
@@ -569,7 +567,7 @@ const abi = [
   "function playerCount() view returns(uint256)",
   "function getPlayersWithXp(uint256,uint256) view returns(address[],uint256[])",
   "function xpInfo() view returns(uint256,uint256,uint256)",
-  "function distributeXp() external"
+  "function distributeXp()"
 ];
 
 let provider, signer, contract, user, contractOwner, ethProvider;
@@ -806,107 +804,105 @@ function startXpCountdown(nextDropTs) {
 async function loadPlayerRound() {
   if (!contract || !user) return;
   try {
-    // V5_XP: read currentRound, then round data + user bets
-    const roundId = (await contract.currentRound()).toNumber();
-    document.getElementById('round').innerText = roundId > 0 ? '#' + roundId : '—';
-    updateLivePriceDisplay();
-
-    // Load real round duration from contract
-    try {
-      const dur = (await contract.roundDuration()).toNumber();
-      selectedDuration = dur;
-      const durLabel = dur < 60 ? dur + 's' : Math.round(dur/60) + 'm';
-      const dispEl = document.getElementById('durDisplay');
-      if (dispEl) dispEl.innerText = durLabel;
-      const isOwn = contractOwner && user && user.toLowerCase() === contractOwner.toLowerCase();
-      const durGroup = document.getElementById('durGroup');
-      const durNote  = document.getElementById('durOwnerNote');
-      if (durGroup) durGroup.style.display = isOwn ? 'flex' : 'none';
-      if (durNote)  durNote.style.display  = isOwn ? 'none' : 'inline';
-    } catch(e) {}
-
-    const settleBtn = document.getElementById('btnSettle');
-
-    // No rounds started yet
-    if (roundId === 0) {
-      playerRoundStatus = 0;
-      setStatus('Waiting', 'waiting');
-      hasBetThisRound = false;
-      settleBtn.style.display = 'none';
-      document.getElementById('timeLeftSmall').innerText = '—';
-      updateBetButtons();
-      return;
-    }
-
-    // Read round data: [startTime, endTime, startPrice, endPrice, settled, outcome]
-    const rd = await contract.rounds(roundId);
-    const endTime    = rd[1].toNumber();
-    const endPrice   = rd[3].toNumber();
-    const settled    = rd[4];
-    const outcome    = rd[5];
+    // V6: read this player's own round
+    const r = await contract.getPlayerRound(user);
+    // r: [startTime, endTime, startPrice, endPrice, betAmount, duration, asset, direction, status, outcome]
+    const startTime  = r[0].toNumber();
+    const endTime    = r[1].toNumber();
+    const startPrice = r[2].toNumber();
+    const endPrice   = r[3].toNumber();
+    const betAmount  = r[4];
+    const duration   = r[5].toNumber();
+    const asset      = r[6];
+    const direction  = r[7]; // 0=NONE,1=UP,2=DOWN
+    const status     = r[8]; // 0=EMPTY,1=ACTIVE,2=ENDED,3=SETTLED
+    const outcome    = r[9];
     const now        = Math.floor(Date.now() / 1000);
 
     contractRoundEndTime = endTime;
 
-    // Check user bets in current round
-    const upBet   = await contract.upBets(roundId, ethers.constants.AddressZero, user);
-    const downBet = await contract.downBets(roundId, ethers.constants.AddressZero, user);
-    const userBetInThisRound = upBet.gt(0) || downBet.gt(0);
+    // Load allowed durations and show them
+    try {
+      const durs = await contract.getAllowedDurations();
+      const durArr = durs.map(d => d.toNumber());
+      updateDurationButtons(durArr);
+    } catch(e) {}
 
-    if (userBetInThisRound) {
-      playerBetRoundId = roundId;
-      hasBetThisRound  = true;
-    } else if (playerBetRoundId !== roundId) {
-      hasBetThisRound = false;
-    }
+    const settleBtn = document.getElementById('btnSettle');
+    const roundEl   = document.getElementById('round');
 
-    if (settled) {
-      playerRoundStatus = 3;
-      setStatus('Settled', 'waiting');
-      if (roundTimerInterval) { clearInterval(roundTimerInterval); roundTimerInterval = null; }
-      document.getElementById('timeLeftSmall').innerText = '—';
+    updateLivePriceDisplay();
+
+    if (status === 0) {
+      // EMPTY — no round yet
+      playerRoundStatus = 0;
+      hasBetThisRound   = false;
+      roundEl.innerText = '—';
+      setStatus('Ready', 'waiting');
       settleBtn.style.display = 'none';
-      const banner = document.getElementById('resultBanner');
-      if (playerBetRoundId === roundId && hasBetThisRound) {
-        banner.className = 'result-banner show ' + (outcome ? 'up-won' : 'down-won');
-        banner.innerHTML = outcome
-          ? `▲ UP WON · Close $${endPrice.toLocaleString()}`
-          : `▼ DOWN WON · Close $${endPrice.toLocaleString()}`;
-        document.getElementById('btnNewRound').style.display = 'block';
-        document.getElementById('btnNewRound').innerText = '▶ Start Next Round';
-      } else {
-        banner.className = 'result-banner';
-      }
-
-    } else if (now >= endTime) {
-      playerRoundStatus = 2;
-      setStatus('Ended', 'ended');
       document.getElementById('timeLeftSmall').innerText = '—';
-      if (roundTimerInterval) { clearInterval(roundTimerInterval); roundTimerInterval = null; }
       document.getElementById('resultBanner').className = 'result-banner';
-      if (user && contractOwner && user.toLowerCase() === contractOwner.toLowerCase()) {
-        settleBtn.style.display = 'block';
-        settleBtn.disabled = false;
-      } else {
-        settleBtn.style.display = 'none';
-      }
+      document.getElementById('btnNewRound').style.display = 'none';
 
-    } else {
+    } else if (status === 1 && now < endTime) {
+      // ACTIVE
       playerRoundStatus = 1;
+      hasBetThisRound   = true;
+      playerBetRoundId  = startTime;
+      roundEl.innerText = '#' + startTime;
       setStatus('Active', 'active');
       settleBtn.style.display = 'none';
       document.getElementById('resultBanner').className = 'result-banner';
       document.getElementById('btnNewRound').style.display = 'none';
-      if (hasBetThisRound) {
-        document.getElementById('timeLeftSmall').innerText = '—';
-        if (activeBets.length > 0) activeBets[activeBets.length-1].endTime = endTime;
-        startRoundTimer(endTime);
+      document.getElementById('timeLeftSmall').innerText = '—';
+      // Sync active bet endTime
+      if (activeBets.length > 0) activeBets[activeBets.length-1].endTime = endTime;
+      startRoundTimer(endTime);
+
+    } else if (status === 1 && now >= endTime) {
+      // ENDED — waiting for owner to settle
+      playerRoundStatus = 2;
+      hasBetThisRound   = true;
+      roundEl.innerText = '#' + startTime;
+      setStatus('Ended', 'ended');
+      document.getElementById('timeLeftSmall').innerText = '—';
+      if (roundTimerInterval) { clearInterval(roundTimerInterval); roundTimerInterval = null; }
+      document.getElementById('resultBanner').className = 'result-banner';
+      // Owner can settle
+      if (contractOwner && user.toLowerCase() === contractOwner.toLowerCase()) {
+        settleBtn.style.display = 'block';
+        settleBtn.disabled = false;
+        settleBtn.onclick = () => settlePlayer(user);
       } else {
-        startRoundTimer(endTime);
+        settleBtn.style.display = 'none';
       }
+
+    } else if (status === 3) {
+      // SETTLED
+      playerRoundStatus = 3;
+      hasBetThisRound   = false;
+      roundEl.innerText = '#' + startTime;
+      setStatus('Settled', 'waiting');
+      settleBtn.style.display = 'none';
+      if (roundTimerInterval) { clearInterval(roundTimerInterval); roundTimerInterval = null; }
+      document.getElementById('timeLeftSmall').innerText = '—';
+      const banner = document.getElementById('resultBanner');
+      if (playerBetRoundId === startTime || true) {
+        banner.className = 'result-banner show ' + (outcome ? 'up-won' : 'down-won');
+        const dirLabel = direction === 1 ? '▲ UP' : '▼ DOWN';
+        const ep = ethers.utils.formatEther(betAmount);
+        banner.innerHTML = outcome
+          ? `▲ UP WON · Close $${endPrice.toLocaleString()} · +${(parseFloat(ep) * (await contract.payoutMultiplier()).toNumber() / 100).toFixed(4)} ETH`
+          : `▼ DOWN WON · You lost · Close $${endPrice.toLocaleString()}`;
+      }
+      document.getElementById('btnNewRound').style.display = 'block';
+      document.getElementById('btnNewRound').innerText = '▶ Place New Bet';
+      activeBets = [];
+      renderBets();
     }
 
     updateBetButtons();
+
     if (contractOwner && user.toLowerCase() === contractOwner.toLowerCase()) {
       await loadOwnerStats();
     }
@@ -948,53 +944,43 @@ function startRoundTimer(endTime) {
 }
 
 async function startNewRound() {
+  // V6: just reset UI — player places new bet whenever ready
   document.getElementById('payoutBanner').className = 'payout-banner';
   document.getElementById('btnNewRound').style.display = 'none';
   document.getElementById('resultBanner').className = 'result-banner';
-  hasBetThisRound = false;
-  playerBetRoundId = 0;
-  playerRoundStatus = 3;
+  hasBetThisRound   = false;
+  playerBetRoundId  = 0;
+  playerRoundStatus = 0;
   activeBets = [];
   renderBets();
   updateBetButtons();
-  loadPlayerRound();
 }
 
 function updateBetButtons() {
   const connected = !!user && !!contract;
-  const canBet = connected && playerRoundStatus === 1 && !hasBetThisRound;
-  const canStart = connected && (playerRoundStatus === 0 || playerRoundStatus === 3);
+  // V6: can bet when EMPTY(0) or SETTLED(3) — each bet starts a new personal round
+  const canBet = connected && (playerRoundStatus === 0 || playerRoundStatus === 3);
 
   document.getElementById('btnUp').disabled   = !canBet;
   document.getElementById('btnDown').disabled = !canBet;
 
-  // Show/hide Start Round button
-  const startBtn = document.getElementById('btnStartRound');
-  if (startBtn) {
-    startBtn.style.display = canStart ? 'block' : 'none';
-  }
-
-  // Show/hide duration selector — only relevant before round starts
   const durGroup = document.getElementById('durGroup');
   if (durGroup) {
-    durGroup.style.opacity = canStart ? '1' : '0.4';
-    durGroup.style.pointerEvents = canStart ? 'auto' : 'none';
+    durGroup.style.opacity       = canBet ? '1' : '0.4';
+    durGroup.style.pointerEvents = canBet ? 'auto' : 'none';
   }
 
   const hint = document.getElementById('betHint');
   if (!connected) {
     hint.innerText = '';
-  } else if (hasBetThisRound && playerRoundStatus === 1) {
+  } else if (playerRoundStatus === 1) {
     hint.innerText = '✓ Bet placed — waiting for round to end';
     hint.style.color = 'var(--up)';
-  } else if (playerRoundStatus === 1 && !hasBetThisRound) {
-    hint.innerText = 'Round is active — place your bet!';
-    hint.style.color = 'var(--neon)';
   } else if (playerRoundStatus === 2) {
-    hint.innerText = 'Round ended — waiting for owner to settle';
+    hint.innerText = 'Round ended — waiting for settlement';
     hint.style.color = 'var(--text-muted)';
-  } else if (playerRoundStatus === 0 || playerRoundStatus === 3) {
-    hint.innerText = 'Choose duration and start a round';
+  } else if (canBet) {
+    hint.innerText = 'Choose duration and place your bet!';
     hint.style.color = 'var(--neon)';
   } else {
     hint.innerText = '';
@@ -1002,41 +988,6 @@ function updateBetButtons() {
 }
 
 // ── Betting ──────────────────────────────────────────
-// ── Start Round (any player) ─────────────────────────
-async function playerStartRound() {
-  if (!checkConnected()) return;
-  const btn = document.getElementById('btnStartRound');
-  btn.disabled = true;
-  btn.innerText = '⏳ Starting...';
-  try {
-    const price = await fetchCoinPrice(selectedCoin);
-    // Set round duration on contract if it differs from selected
-    const currentDur = await contract.roundDuration();
-    if (currentDur.toNumber() !== selectedDuration) {
-      try {
-        const txDur = await contract.setRoundDuration(selectedDuration);
-        await txDur.wait();
-      } catch(e) {
-        // Not owner — can't set duration, proceed with existing
-      }
-    }
-    const tx = await contract.startRound(price);
-    await tx.wait();
-    btn.style.display = 'none';
-    btn.disabled = false;
-    btn.innerText = '▶ Start Round';
-    await loadPlayerRound();
-  } catch(e) {
-    const msg = e.reason || e.message || '';
-    if (msg.includes('Round still active')) {
-      alert('A round is already active!');
-    } else {
-      alert('Failed to start round: ' + msg);
-    }
-    btn.disabled = false;
-    btn.innerText = '▶ Start Round';
-  }
-}
 
 async function betUp()   { await _bet('UP'); }
 async function betDown() { await _bet('DOWN'); }
@@ -1045,63 +996,67 @@ async function _bet(direction) {
   if (!checkConnected()) return;
   const amount = document.getElementById('amount').value;
   if (!amount || parseFloat(amount) <= 0) { alert('Enter a valid ETH amount'); return; }
-  document.getElementById('btnUp').disabled = true;
+  document.getElementById('btnUp').disabled   = true;
   document.getElementById('btnDown').disabled = true;
   try {
     const val = ethers.utils.parseEther(amount);
-    // Get current coin price
     let coinLockPrice = 0;
     try { coinLockPrice = await fetchCoinPrice(selectedCoin); } catch(e) {}
     if (!coinLockPrice || coinLockPrice <= 0) {
       alert('Could not fetch price. Try again.');
       updateBetButtons(); return;
     }
-    // V5_XP: betUp() / betDown() — no args, just ETH value
-    const tx = direction === 'UP'
-      ? await contract.betUp({ value: val })
-      : await contract.betDown({ value: val });
+    const goUp = direction === 'UP';
+    const tx = await contract.placeBet(selectedDuration, coinLockPrice, selectedCoin, goUp, { value: val });
     await tx.wait();
     hasBetThisRound = true;
     document.getElementById('timeLeftSmall').innerText = '—';
-    contractRoundEndTime = Math.floor(Date.now() / 1000) + selectedDuration;
     addActiveBet(direction, amount, coinLockPrice);
     await loadPlayerRound();
-    await loadUserXp();
   } catch(e) {
     const msg = e.reason || e.message || '';
-    if (msg.includes('already active')) {
-      alert('You already have an active round. Wait for it to end and settle first.');
-    } else if (msg.includes('Insufficient liquidity')) {
-      alert('Contract has insufficient liquidity. Contact the owner.');
-    } else if (msg.includes('Invalid duration')) {
-      alert('Invalid duration selected.');
-    } else {
-      alert('Bet failed: ' + msg);
-    }
-  } finally { updateBetButtons(); }
+    if (msg.includes('Round already active')) alert('You already have an active round!');
+    else if (msg.includes('Insufficient liquidity')) alert('Not enough liquidity in the pool. Contact owner.');
+    else if (msg.includes('Below min bet')) alert('Bet is below minimum!');
+    else if (msg.includes('Above max bet')) alert('Bet is above maximum!');
+    else if (msg.includes('Invalid duration')) alert('Invalid duration selected!');
+    else alert('Bet failed: ' + msg);
+    updateBetButtons();
+  }
 }
+
+async function betUp()   { await _bet('UP'); }
+async function betDown() { await _bet('DOWN'); }
+
+
 
 // ── Settle ───────────────────────────────────────────
 async function settle() {
+  await settlePlayer(user);
+}
+
+async function settlePlayer(playerAddr) {
   if (!checkConnected()) return;
   document.getElementById('btnSettle').disabled = true;
   try {
     const closePrice = await fetchCoinPrice(selectedCoin);
-    const tx = await contract.settle(closePrice);
+    const tx = await contract.settle(playerAddr, closePrice);
     await tx.wait();
     document.getElementById('btnSettle').style.display = 'none';
     await loadPlayerRound();
   } catch(e) {
-    alert('Settle failed: ' + (e.reason || e.message));
+    const msg = e.reason || e.message || '';
+    if (msg.includes('Not ended yet')) alert('Round has not ended yet!');
+    else alert('Settle failed: ' + msg);
     document.getElementById('btnSettle').disabled = false;
   }
 }
 
 async function autoSettle() {
-  // V5_XP: owner calls settle(price) when round ends
+  // V6: owner auto-settles their own round
   try {
     const closePrice = await fetchCoinPrice(selectedCoin);
-    const tx = await contract.settle(closePrice);
+    const tx = await contract.settle(user, closePrice);
     await tx.wait();
     document.getElementById('btnSettle').style.display = 'none';
     await loadPlayerRound();
@@ -1198,42 +1153,47 @@ function formatTime(s) {
 
 // ── Owner ─────────────────────────────────────────────
 async function loadOwnerStats() {
-  if (!contract || !user) return;
   try {
-    const info = await contract.balanceInfo();
-    document.getElementById('ownerBalContract').innerText  = parseFloat(ethers.utils.formatEther(info[0])).toFixed(4) + ' ETH';
-    document.getElementById('ownerBalProfit').innerText    = '—';
-    document.getElementById('ownerBalLiquidity').innerText = parseFloat(ethers.utils.formatEther(info[1])).toFixed(4) + ' ETH';
-  } catch(e) {}
+    const [liquidity, contractBal] = await contract.balanceInfo();
+    const profitRaw = contractBal.sub(liquidity);
+    document.getElementById('ownerBalContract').innerText  = parseFloat(ethers.utils.formatEther(contractBal)).toFixed(4) + ' ETH';
+    document.getElementById('ownerBalProfit').innerText    = parseFloat(ethers.utils.formatEther(profitRaw)).toFixed(4) + ' ETH';
+    document.getElementById('ownerBalLiquidity').innerText = parseFloat(ethers.utils.formatEther(liquidity)).toFixed(4) + ' ETH';
+  } catch(e) { console.error('loadOwnerStats:', e); }
 }
 
 async function ownerDeposit() {
-  const amount = document.getElementById('depositAmount').value;
-  if (!amount) { alert('Enter amount'); return; }
+  const amt = document.getElementById('depositAmount').value;
+  if (!amt || parseFloat(amt) <= 0) { alert('Enter amount'); return; }
   try {
-    const tx = await contract.depositLiquidity({ value: ethers.utils.parseEther(amount) });
+    const val = ethers.utils.parseEther(amt);
+    const tx = await contract.depositLiquidity({ value: val });
     await tx.wait();
     document.getElementById('depositAmount').value = '';
-    await loadOwnerStats(); alert('Deposited ✓');
-  } catch(e) { alert('Deposit failed: ' + (e.reason||e.message)); }
+    alert('Deposited ' + amt + ' ETH ✓');
+    await loadOwnerStats();
+  } catch(e) { alert('Deposit failed: ' + (e.reason || e.message)); }
 }
 
 async function ownerWithdraw() {
-  const input = document.getElementById('withdrawAmount').value;
-  const amount = (!input || parseFloat(input) === 0) ? 0 : ethers.utils.parseEther(input);
+  const amt = document.getElementById('withdrawAmount').value;
   try {
-    const tx = await contract.withdrawLiquidity(amount);
+    const val = amt && parseFloat(amt) > 0 ? ethers.utils.parseEther(amt) : 0;
+    const tx = await contract.withdrawLiquidity(val);
     await tx.wait();
     document.getElementById('withdrawAmount').value = '';
-    await loadOwnerStats(); alert('Withdrawn ✓');
-  } catch(e) { alert('Withdraw failed: ' + (e.reason||e.message)); }
+    alert('Withdrawn ✓');
+    await loadOwnerStats();
+  } catch(e) { alert('Withdraw failed: ' + (e.reason || e.message)); }
 }
 
 async function ownerWithdrawAll() {
   try {
-    await (await contract.withdrawLiquidity(0)).wait();
-    await loadOwnerStats(); alert('All withdrawn ✓');
-  } catch(e) { alert('Error: ' + (e.reason||e.message)); }
+    const tx = await contract.withdrawLiquidity(0);
+    await tx.wait();
+    alert('All withdrawn ✓');
+    await loadOwnerStats();
+  } catch(e) { alert('Failed: ' + (e.reason || e.message)); }
 }
 
 
@@ -1442,6 +1402,26 @@ function selectDuration(sec, btn) {
   btn.classList.add('active');
 }
 
+function updateDurationButtons(durs) {
+  const group = document.getElementById('durGroup');
+  if (!group) return;
+  group.innerHTML = '';
+  group.style.display = 'flex';
+  durs.forEach((sec, i) => {
+    const label = sec < 60 ? sec + 's' : Math.round(sec/60) + 'm';
+    const btn = document.createElement('button');
+    btn.className = 'dur-btn' + (i === 0 ? ' active' : '');
+    btn.innerText = label;
+    btn.onclick = () => selectDuration(sec, btn);
+    group.appendChild(btn);
+  });
+  if (durs.length > 0 && !durs.includes(selectedDuration)) {
+    selectedDuration = durs[0];
+  }
+  const dispEl = document.getElementById('durDisplay');
+  if (dispEl) dispEl.innerText = '';
+}
+
 function checkConnected() {
   if (!user || !contract) { alert('Please connect your wallet first'); return false; }
   return true;
@@ -1567,6 +1547,7 @@ startPriceWebSocket();
 
 // Expose to global scope for inline onclick handlers
 window.connect = connect;
+window.settlePlayer = settlePlayer;
 window.disconnect = disconnect;
 
 // Bind connect button — script runs after DOM so direct binding works here
