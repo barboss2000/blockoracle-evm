@@ -1100,7 +1100,7 @@ async function loadPlayerRound() {
       if (activeBets.length === 0 && betAmount.gt(0)) {
         const dirLabel = direction === 1 ? 'UP' : 'DOWN';
         const ep = parseFloat(ethers.utils.formatEther(betAmount));
-        activeBets = [{ direction: dirLabel, amount: ep.toFixed(4), endTime, coin: asset || selectedCoin, durationMin: Math.round(duration/60), lockPrice: startPrice }];
+        activeBets = [{ direction: dirLabel, amount: ep.toFixed(4), endTime, coin: asset || selectedCoin, durationMin: Math.round(duration/60), lockPrice: startPrice, sym: getNativeSym() }];
         renderBets();
         if (!betsRenderInterval) betsRenderInterval = setInterval(renderBets, 1000);
       } else if (activeBets.length > 0) {
@@ -1350,7 +1350,7 @@ function addActiveBet(direction, amount, lockPrice) {
     ? contractRoundEndTime
     : Math.floor(Date.now() / 1000) + selectedDuration;
   const durMin = Math.round((endTime - Math.floor(Date.now()/1000)) / 60);
-  activeBets.push({ direction, amount, endTime, coin: selectedCoin, durationMin: durMin, lockPrice: lockPrice || 0 });
+  activeBets.push({ direction, amount, endTime, coin: selectedCoin, durationMin: durMin, lockPrice: lockPrice || 0, sym: getNativeSym() });
   renderBets();
   if (!betsRenderInterval) betsRenderInterval = setInterval(renderBets, 1000);
 }
@@ -1638,21 +1638,29 @@ function selectDuration(sec, btn) {
 function updateDurationButtons(durs) {
   const group = document.getElementById('durGroup');
   if (!group) return;
+  // Only rebuild if buttons don't exist yet
+  if (group.children.length === durs.length) {
+    // Just sync active state without resetting selectedDuration
+    group.querySelectorAll('.dur-btn').forEach(b => {
+      const sec = durs.find(d => Math.round(d/60) + 'm' === b.innerText || d + 's' === b.innerText);
+      b.classList.toggle('active', sec === selectedDuration);
+    });
+    return;
+  }
   group.innerHTML = '';
   group.style.display = 'flex';
-  durs.forEach((sec, i) => {
+  durs.forEach((sec) => {
     const label = sec < 60 ? sec + 's' : Math.round(sec/60) + 'm';
     const btn = document.createElement('button');
-    btn.className = 'dur-btn' + (i === 0 ? ' active' : '');
+    btn.className = 'dur-btn' + (sec === selectedDuration ? ' active' : '');
     btn.innerText = label;
     btn.onclick = () => selectDuration(sec, btn);
     group.appendChild(btn);
   });
+  // Only reset selectedDuration if current value not in list
   if (durs.length > 0 && !durs.includes(selectedDuration)) {
     selectedDuration = durs[0];
   }
-  const dispEl = document.getElementById('durDisplay');
-  if (dispEl) dispEl.innerText = '';
 }
 
 function checkConnected() {
