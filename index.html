@@ -1050,6 +1050,13 @@ async function loadPlayerRound() {
     const r = await contract.getPlayerRound(user);
     // r: [startTime, endTime, startPrice, endPrice, betAmount, duration, asset, direction, status, outcome]
     const startTime  = r[0].toNumber();
+
+    // Always load durations regardless of round status
+    try {
+      const durs = await contract.getAllowedDurations();
+      const durArr = durs.map(d => d.toNumber());
+      updateDurationButtons(durArr);
+    } catch(e) {}
     const endTime    = r[1].toNumber();
     const startPrice = r[2].toNumber();
     const endPrice   = r[3].toNumber();
@@ -1063,12 +1070,7 @@ async function loadPlayerRound() {
 
     contractRoundEndTime = endTime;
 
-    // Load allowed durations and show them
-    try {
-      const durs = await contract.getAllowedDurations();
-      const durArr = durs.map(d => d.toNumber());
-      updateDurationButtons(durArr);
-    } catch(e) {}
+
 
     const settleBtn = document.getElementById('btnSettle');
     const roundEl   = document.getElementById('round');
@@ -1640,6 +1642,7 @@ function updateDurationButtons(durs) {
   if (!group) return;
   // Only rebuild if buttons don't exist yet
   if (group.children.length === durs.length) {
+    group.style.display = 'flex';
     // Just sync active state without resetting selectedDuration
     group.querySelectorAll('.dur-btn').forEach(b => {
       const sec = durs.find(d => Math.round(d/60) + 'm' === b.innerText || d + 's' === b.innerText);
