@@ -38,7 +38,7 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
 .logo-text{font-family:'Syne',sans-serif;font-weight:800;font-size:15px;letter-spacing:-0.5px;}
 .logo-text span{color:var(--neon);}
 .header-right{display:flex;align-items:center;gap:8px;}
-.chain-badge{font-size:10px;color:var(--text-muted);border:1px solid var(--border);padding:4px 10px;border-radius:4px;letter-spacing:1px;text-transform:uppercase;}
+.chain-badge{display:none;}
 
 /* XP badge in header */
 .xp-badge-header{display:none;align-items:center;gap:5px;background:var(--xp-dim);border:1px solid rgba(167,139,250,0.3);padding:5px 10px;border-radius:6px;font-size:11px;color:var(--xp);}
@@ -262,6 +262,18 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
   .chart-col{border-right:none;border-bottom:1px solid var(--border);}
   .admin-stats-row{grid-template-columns:1fr 1fr;}
 }
+.wallet-balance {
+  margin-top: 4px;
+  font-size: 13px;
+  font-family: var(--font);
+  color: var(--neon);
+  letter-spacing: 0.05em;
+}
+.wallet-balance span:last-child {
+  color: var(--text-muted);
+  font-size: 10px;
+  margin-left: 3px;
+}
 .net-switcher {
   display: flex;
   gap: 0;
@@ -345,7 +357,6 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
           <span class="net-dot" style="background:#a855f7"></span><span class="net-name">Arc</span>
         </button>
       </div>
-      <div class="chain-badge" id="chainBadge">Robinhood Chain · 46630</div>
       <button class="btn-connect" id="btnConnect">Connect Wallet</button>
       <button class="btn-disconnect" id="btnDisconnect" title="Disconnect">✕</button>
     </div>
@@ -417,6 +428,10 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
           <div class="stat-item">
             <div class="stat-label">Wallet</div>
             <div class="stat-value" id="wallet" style="font-size:11px;">Not connected</div>
+            <div class="wallet-balance" id="walletBalance" style="display:none;">
+              <span id="walletBalanceAmt">0</span>
+              <span id="walletBalanceSym">ETH</span>
+            </div>
           </div>
           <div class="stat-item">
             <div class="stat-label">Round ends in</div>
@@ -459,7 +474,7 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
         <div class="section-title">Place your bet · <span id="tradingAsset" style="color:var(--neon)">BTC</span></div>
         <div class="amount-input-wrap">
           <input class="amount-input" id="amount" type="number" placeholder="0.0001" step="0.0001" min="0.0001"/>
-          <span class="amount-suffix">ETH</span>
+          <span class="amount-suffix" id="amountSuffix">ETH</span>
         </div>
         <div class="dur-label">Duration · <span id="durDisplay" style="color:var(--neon)">—</span> <span id="durOwnerNote" style="color:var(--text-muted);font-size:9px;display:none;">(owner only)</span></div>
         <div class="dur-group" id="durGroup" style="display:none;">
@@ -632,6 +647,25 @@ let CONTRACT_ADDRESS = NETWORKS[activeNetwork].contract;
 let CHAIN_ID         = NETWORKS[activeNetwork].chainId;
 let CHAIN_CONFIG     = buildChainConfig(activeNetwork);
 
+function getNativeSym() {
+  return NETWORKS[activeNetwork].currency.symbol;
+}
+
+function updateNativeLabels() {
+  const sym = getNativeSym();
+  // Update balance sym if visible
+  const balSym = document.getElementById('walletBalanceSym');
+  if (balSym) balSym.innerText = sym;
+  // Amount input suffix
+  const suffix = document.getElementById('amountSuffix');
+  if (suffix) suffix.innerText = sym;
+  // Deposit/withdraw placeholders
+  const dep = document.getElementById('depositAmount');
+  if (dep) dep.placeholder = sym + ' amount';
+  const wd = document.getElementById('withdrawAmount');
+  if (wd) wd.placeholder = sym + ' (0=all)';
+}
+
 function buildChainConfig(netKey) {
   const n = NETWORKS[netKey];
   return {
@@ -655,6 +689,7 @@ async function switchNetwork(netKey) {
     b.classList.toggle('active', b.dataset.net === netKey);
   });
   updateChainBadge();
+  updateNativeLabels();
 
   // Update faucet link
   const faucetBtn = document.querySelector('.btn-faucet');
@@ -678,6 +713,8 @@ async function switchNetwork(netKey) {
     contractOwner = await contract.owner();
     await loadPlayerRound();
     await loadUserXp();
+    await loadWalletBalance();
+    await loadWalletBalance();
   }
 }
 
@@ -851,8 +888,38 @@ async function connect() {
     await loadPlayerRound();
     setInterval(loadPlayerRound, 8000);
 
-    ethProvider.on('accountsChanged', () => disconnect());
-    ethProvider.on('chainChanged', () => location.reload());
+    ethProvider.on('accountsChanged', (accounts) => {
+      if (!accounts || accounts.length === 0) { disconnect(); }
+      else {
+        user = accounts[0];
+        document.getElementById('wallet').innerText = user.slice(0,6)+'...'+user.slice(-4);
+        loadPlayerRound(); loadUserXp(); loadWalletBalance();
+      }
+    });
+    ethProvider.on('chainChanged', async (chainIdHex) => {
+      const newChainId = parseInt(chainIdHex, 16);
+      // Sync active network button if chain matches a known network
+      const matched = Object.keys(NETWORKS).find(k => NETWORKS[k].chainId === newChainId);
+      if (matched) {
+        activeNetwork    = matched;
+        CONTRACT_ADDRESS = NETWORKS[matched].contract;
+        CHAIN_ID         = NETWORKS[matched].chainId;
+        CHAIN_CONFIG     = buildChainConfig(matched);
+        document.querySelectorAll('.net-btn').forEach(b => b.classList.toggle('active', b.dataset.net === matched));
+        updateChainBadge();
+        updateNativeLabels();
+        const faucetBtn = document.querySelector('.btn-faucet');
+        if (faucetBtn) faucetBtn.href = NETWORKS[matched].faucet;
+      }
+      // Rebuild provider/signer/contract on new chain
+      provider = new ethers.providers.Web3Provider(ethProvider);
+      signer   = provider.getSigner();
+      contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
+      try { contractOwner = await contract.owner(); } catch(e) {}
+      await loadPlayerRound();
+      await loadUserXp();
+      await loadWalletBalance();
+    });
 
   } catch(e) { alert("Connection error: " + e.message); }
 }
@@ -870,6 +937,7 @@ function disconnect() {
   document.getElementById('btnConnect').onclick = connect;
   document.getElementById('btnDisconnect').style.display = 'none';
   document.getElementById('wallet').innerText = 'Not connected';
+  document.getElementById('walletBalance').style.display = 'none';
   document.getElementById('round').innerText = '—';
   document.getElementById('lockPrice').innerText = '—';
   document.getElementById('timeLeftSmall').innerText = '—';
@@ -885,6 +953,23 @@ function disconnect() {
 }
 
 // ── Load XP for current user ─────────────────────────
+async function loadWalletBalance() {
+  if (!provider || !user) return;
+  try {
+    const raw = await provider.getBalance(user);
+    const bal = parseFloat(ethers.utils.formatEther(raw));
+    const sym = getNativeSym();
+    const formatted = bal >= 1
+      ? bal.toFixed(4)
+      : bal < 0.0001
+        ? '<0.0001'
+        : bal.toFixed(4);
+    document.getElementById('walletBalanceAmt').innerText = formatted;
+    document.getElementById('walletBalanceSym').innerText = sym;
+    document.getElementById('walletBalance').style.display = 'block';
+  } catch(e) { console.warn('loadWalletBalance:', e.message); }
+}
+
 async function loadUserXp() {
   if (!user) return;
   try {
@@ -1051,7 +1136,7 @@ async function loadPlayerRound() {
         const dirLabel = direction === 1 ? '▲ UP' : '▼ DOWN';
         const ep = ethers.utils.formatEther(betAmount);
         banner.innerHTML = outcome
-          ? `▲ UP WON · Close $${endPrice.toLocaleString()} · +${(parseFloat(ep) * (await contract.payoutMultiplier()).toNumber() / 100).toFixed(4)} ETH`
+          ? `▲ UP WON · Close $${endPrice.toLocaleString()} · +${(parseFloat(ep) * (await contract.payoutMultiplier()).toNumber() / 100).toFixed(4)} ${getNativeSym()}`
           : `▼ DOWN WON · You lost · Close $${endPrice.toLocaleString()}`;
       }
       document.getElementById('btnNewRound').style.display = 'block';
@@ -1146,7 +1231,7 @@ async function betDown() { await _bet('DOWN'); }
 async function _bet(direction) {
   if (!checkConnected()) return;
   const amount = document.getElementById('amount').value;
-  if (!amount || parseFloat(amount) <= 0) { alert('Enter a valid ETH amount'); return; }
+  if (!amount || parseFloat(amount) <= 0) { alert(`Enter a valid ${getNativeSym()} amount`); return; }
   document.getElementById('btnUp').disabled   = true;
   document.getElementById('btnDown').disabled = true;
   try {
@@ -1162,6 +1247,7 @@ async function _bet(direction) {
     await tx.wait();
     hasBetThisRound = true;
     document.getElementById('timeLeftSmall').innerText = '—';
+    loadWalletBalance();
     addActiveBet(direction, amount, coinLockPrice);
     await loadPlayerRound();
   } catch(e) {
@@ -1302,9 +1388,10 @@ async function loadOwnerStats() {
   try {
     const [liquidity, contractBal] = await contract.balanceInfo();
     const profitRaw = contractBal.sub(liquidity);
-    document.getElementById('ownerBalContract').innerText  = parseFloat(ethers.utils.formatEther(contractBal)).toFixed(4) + ' ETH';
-    document.getElementById('ownerBalProfit').innerText    = parseFloat(ethers.utils.formatEther(profitRaw)).toFixed(4) + ' ETH';
-    document.getElementById('ownerBalLiquidity').innerText = parseFloat(ethers.utils.formatEther(liquidity)).toFixed(4) + ' ETH';
+    const sym = getNativeSym();
+    document.getElementById('ownerBalContract').innerText  = parseFloat(ethers.utils.formatEther(contractBal)).toFixed(4) + ' ' + sym;
+    document.getElementById('ownerBalProfit').innerText    = parseFloat(ethers.utils.formatEther(profitRaw)).toFixed(4) + ' ' + sym;
+    document.getElementById('ownerBalLiquidity').innerText = parseFloat(ethers.utils.formatEther(liquidity)).toFixed(4) + ' ' + sym;
   } catch(e) { console.error('loadOwnerStats:', e); }
 }
 
@@ -1316,7 +1403,7 @@ async function ownerDeposit() {
     const tx = await contract.depositLiquidity({ value: val });
     await tx.wait();
     document.getElementById('depositAmount').value = '';
-    alert('Deposited ' + amt + ' ETH ✓');
+    alert('Deposited ' + amt + ' ' + getNativeSym() + ' ✓');
     await loadOwnerStats();
   } catch(e) { alert('Deposit failed: ' + (e.reason || e.message)); }
 }
@@ -1580,6 +1667,7 @@ tvWidget = new TradingView.widget({
   hide_side_toolbar:true, allow_symbol_change:false,
 });
 startPriceWebSocket();
+updateNativeLabels();
 
 
 
