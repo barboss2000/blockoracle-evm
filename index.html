@@ -1374,7 +1374,7 @@ function renderBets() {
     return `<div class="bet-item">
       <span class="bet-dir-badge ${dc}">${bet.direction}</span>
       <div class="bet-info">
-        <div class="bet-amount">${parseFloat(bet.amount).toFixed(4)} ETH</div>
+        <div class="bet-amount">${parseFloat(bet.amount).toFixed(4)} ${bet.sym || getNativeSym()}</div>
         <div class="bet-meta">${bet.coin} · ${bet.durationMin}m${bet.lockPrice ? " · Lock $" + bet.lockPrice.toLocaleString() : ""}</div>
       </div>${timer}</div>`;
   }).join('');
