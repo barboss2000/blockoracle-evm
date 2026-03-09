@@ -279,7 +279,11 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
         <span id="xpHeaderAmount">0 XP</span>
       </div>
       <a href="https://faucet.testnet.chain.robinhood.com/?error=undefined&address=0x6d4D522f22681b76483BF327ff7Bb6748a68Da5c&step=auth" target="_blank" class="btn-faucet">💧 Faucet</a>
-      <div class="chain-badge">Robinhood Chain · 46630</div>
+      <div class="net-switcher">
+        <button class="net-btn active" data-net="robinhood" onclick="switchNetwork('robinhood')">Robinhood</button>
+        <button class="net-btn" data-net="arc" onclick="switchNetwork('arc')">Arc</button>
+      </div>
+      <div class="chain-badge" id="chainBadge">Robinhood Chain · 46630</div>
       <button class="btn-connect" id="btnConnect">Connect Wallet</button>
       <button class="btn-disconnect" id="btnDisconnect" title="Disconnect">✕</button>
     </div>
@@ -537,15 +541,71 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
 // ══════════════════════════════════════════════════════
 // CONTRACT CONFIG — новый адрес V5_XP
 // ══════════════════════════════════════════════════════
-const CONTRACT_ADDRESS = "0xC50dd7383FF6a9cD0113F84Bf51D78b22ae155f4";
-const CHAIN_ID = 46630;
-const CHAIN_CONFIG = {
-  chainId: '0x' + CHAIN_ID.toString(16),
-  chainName: 'Robinhood Chain Testnet',
-  nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
-  rpcUrls: ['https://testnet.chain.robinhood.com'],
-  blockExplorerUrls: ['https://testnet-explorer.chain.robinhood.com']
+// ── NETWORKS CONFIG ─────────────────────────────────────────────
+const NETWORKS = {
+  robinhood: {
+    name: 'Robinhood Chain',
+    chainId: 46630,
+    chainIdHex: '0xb626',
+    rpc: 'https://testnet.chain.robinhood.com',
+    explorer: 'https://testnet-explorer.chain.robinhood.com',
+    currency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+    contract: '0xC50dd7383FF6a9cD0113F84Bf51D78b22ae155f4',
+    faucet: 'https://faucet.testnet.chain.robinhood.com'
+  },
+  arc: {
+    name: 'Arc Testnet',
+    chainId: 5042002,
+    chainIdHex: '0x4cef52',
+    rpc: 'https://rpc.testnet.arc.network',
+    explorer: 'https://explorer.testnet.arc.network',
+    currency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
+    contract: '0xfccDC64ff1E9760DbA96FC5b7a7D468b78CBfBE4'
+    faucet: 'https://faucet.circle.com/'
+  }
 };
+
+let activeNetwork = 'robinhood';
+let CONTRACT_ADDRESS = NETWORKS[activeNetwork].contract;
+let CHAIN_ID         = NETWORKS[activeNetwork].chainId;
+let CHAIN_CONFIG     = buildChainConfig(activeNetwork);
+
+function buildChainConfig(netKey) {
+  const n = NETWORKS[netKey];
+  return {
+    chainId: n.chainIdHex,
+    chainName: n.name,
+    nativeCurrency: n.currency,
+    rpcUrls: [n.rpc],
+    blockExplorerUrls: [n.explorer]
+  };
+}
+
+function switchNetwork(netKey) {
+  if (!NETWORKS[netKey]) return;
+  activeNetwork    = netKey;
+  CONTRACT_ADDRESS = NETWORKS[netKey].contract;
+  CHAIN_ID         = NETWORKS[netKey].chainId;
+  CHAIN_CONFIG     = buildChainConfig(netKey);
+  // Update UI
+  document.querySelectorAll('.net-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.net === netKey);
+  });
+  updateChainBadge();
+  // Reconnect contract if already connected
+  if (signer) {
+    contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
+    loadPlayerRound();
+  }
+  // Update faucet link
+  const faucetBtn = document.querySelector('.btn-faucet');
+  if (faucetBtn) faucetBtn.href = NETWORKS[netKey].faucet;
+}
+
+function updateChainBadge() {
+  const el = document.querySelector('.chain-badge');
+  if (el) el.innerText = NETWORKS[activeNetwork].name + ' · ' + NETWORKS[activeNetwork].chainId;
+}
 
 // ABI: оригинальные функции V5 + новые XP функции
 const abi = [
@@ -747,45 +807,53 @@ function disconnect() {
 
 // ── Load XP for current user ─────────────────────────
 async function loadUserXp() {
-  if (!contract || !user) return;
+  if (!user) return;
   try {
-    const [rawXp, info] = await Promise.all([
-      contract.xpBalance(user),
-      contract.xpInfo()
-    ]);
+    // Read XP from ALL networks and sum them up
+    let totalXp = 0;
+    let scheduleInfo = null;
 
-    const xpNum = parseFloat(ethers.utils.formatEther(rawXp));
-    const xpFormatted = xpNum >= 1000
-      ? (xpNum/1000).toFixed(1) + 'K'
-      : xpNum.toFixed(1);
+    for (const [netKey, net] of Object.entries(NETWORKS)) {
+      try {
+        const netProvider = new ethers.providers.JsonRpcProvider(net.rpc);
+        const netContract = new ethers.Contract(net.contract, abi, netProvider);
+        const [rawXp, info] = await Promise.all([
+          netContract.xpBalance(user),
+          netContract.xpInfo()
+        ]);
+        const xp = parseFloat(ethers.utils.formatEther(rawXp));
+        totalXp += xp;
+        // Use schedule info from active network
+        if (netKey === activeNetwork) scheduleInfo = info;
+      } catch(e) { /* network might be unavailable */ }
+    }
+
+    const xpFormatted = totalXp >= 1000
+      ? (totalXp/1000).toFixed(1) + 'K'
+      : totalXp.toFixed(1);
 
     document.getElementById('xpAmount').innerText = xpFormatted;
     document.getElementById('xpHeaderAmount').innerText = xpFormatted + ' XP';
 
-    // Rank label
-    const rank = xpNum >= 10000 ? '🥇 LEGEND'
-                : xpNum >= 5000  ? '🥈 ELITE'
-                : xpNum >= 1000  ? '🥉 PRO'
-                : xpNum >= 100   ? '⚡ ACTIVE'
-                : xpNum > 0      ? '✦ ROOKIE'
-                :                  'Unranked';
+    // Rank based on total XP across all networks
+    const rank = totalXp >= 10000 ? '🥇 LEGEND'
+                : totalXp >= 5000  ? '🥈 ELITE'
+                : totalXp >= 1000  ? '🥉 PRO'
+                : totalXp >= 100   ? '⚡ ACTIVE'
+                : totalXp > 0      ? '✦ ROOKIE'
+                :                    'Unranked';
     document.getElementById('xpRank').innerText = rank;
 
-    // Schedule info
-    const nextDrop    = info[0].toNumber();
-    const weeksLeft   = info[1].toNumber();
-    const xpRemaining = parseFloat(ethers.utils.formatEther(info[2]));
-
-    document.getElementById('xpWeeksLeft').innerText = weeksLeft + ' weeks left';
-
-    // Season progress
-    const weeksDone = 17 - weeksLeft;
-    const pct = Math.round((weeksDone / 17) * 100);
-    document.getElementById('xpProgressPct').innerText = pct + '%';
-    document.getElementById('xpProgressFill').style.width = pct + '%';
-
-    // Countdown to next drop
-    startXpCountdown(nextDrop);
+    // Schedule info from active network
+    if (scheduleInfo) {
+      const nextDrop  = scheduleInfo[0].toNumber();
+      const weeksLeft = scheduleInfo[1].toNumber();
+      document.getElementById('xpWeeksLeft').innerText = weeksLeft + ' weeks left';
+      const pct = Math.round(((17 - weeksLeft) / 17) * 100);
+      document.getElementById('xpProgressPct').innerText = pct + '%';
+      document.getElementById('xpProgressFill').style.width = pct + '%';
+      startXpCountdown(nextDrop);
+    }
 
   } catch(e) { console.warn('loadUserXp:', e.message); }
 }
@@ -1546,6 +1614,7 @@ startPriceWebSocket();
 
 // Expose to global scope for inline onclick handlers
 window.connect = connect;
+window.switchNetwork = switchNetwork;
 window.settlePlayer = settlePlayer;
 window.disconnect = disconnect;
 
