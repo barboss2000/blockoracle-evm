@@ -332,6 +332,82 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
 }
 .net-btn.active .net-name { text-shadow: 0 0 12px rgba(213,253,81,0.6); }
 .net-name { position: relative; }
+
+/* ── AI SIGNAL PANEL ─────────────────────────────────────────── */
+.ai-panel {
+  background: linear-gradient(135deg, rgba(10,15,8,0.95), rgba(15,20,10,0.9));
+  border: 1px solid rgba(213,253,81,0.25);
+  border-radius: 12px;
+  margin-bottom: 14px;
+  overflow: hidden;
+  position: relative;
+}
+.ai-panel::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--neon), transparent);
+  opacity: 0.6;
+}
+.ai-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.ai-icon { color: var(--neon); font-size: 14px; }
+.ai-title { font-family: var(--font); font-size: 10px; letter-spacing: 2px; color: var(--neon); flex: 1; }
+.ai-coin { font-family: var(--font); font-size: 10px; color: var(--text-muted); letter-spacing: 1px; }
+.ai-refresh-btn {
+  background: none; border: none; color: var(--text-muted);
+  cursor: pointer; font-size: 14px; padding: 0 4px;
+  transition: color 0.2s, transform 0.3s;
+}
+.ai-refresh-btn:hover { color: var(--neon); transform: rotate(180deg); }
+.ai-body { padding: 12px 14px; }
+.ai-loading { display: flex; gap: 6px; justify-content: center; padding: 12px 0; }
+.ai-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--neon); opacity: 0.3;
+  animation: aiPulse 1.2s ease-in-out infinite;
+}
+.ai-dot:nth-child(2) { animation-delay: 0.2s; }
+.ai-dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes aiPulse { 0%,100%{opacity:0.2;transform:scale(0.8)} 50%{opacity:1;transform:scale(1.2)} }
+.ai-row { margin-bottom: 10px; }
+.ai-prob-bar-wrap {
+  height: 8px; border-radius: 4px;
+  overflow: hidden; display: flex;
+  background: rgba(255,255,255,0.05);
+  margin-bottom: 6px;
+}
+.ai-prob-up { background: linear-gradient(90deg, #00cc44, #d5fd51); transition: width 0.8s ease; }
+.ai-prob-down { background: linear-gradient(90deg, #ff4466, #ff2244); transition: width 0.8s ease; }
+.ai-prob-labels { display: flex; justify-content: space-between; }
+.ai-up-label { font-family: var(--font); font-size: 11px; color: #00cc44; }
+.ai-down-label { font-family: var(--font); font-size: 11px; color: #ff4466; }
+.ai-sentiment-row { display: flex; align-items: center; gap: 10px; }
+.ai-label { font-family: var(--font); font-size: 9px; letter-spacing: 1px; color: var(--text-muted); min-width: 72px; }
+.ai-sentiment-badge {
+  font-family: var(--font); font-size: 11px;
+  padding: 3px 10px; border-radius: 4px;
+  letter-spacing: 1px;
+}
+.ai-sentiment-badge.bullish { background: rgba(0,204,68,0.15); color: #00cc44; border: 1px solid rgba(0,204,68,0.3); }
+.ai-sentiment-badge.bearish { background: rgba(255,68,102,0.15); color: #ff4466; border: 1px solid rgba(255,68,102,0.3); }
+.ai-sentiment-badge.neutral { background: rgba(255,255,255,0.05); color: var(--text-muted); border: 1px solid var(--border); }
+.ai-levels-row { display: flex; align-items: flex-start; gap: 10px; }
+.ai-levels { font-family: var(--font); font-size: 11px; color: var(--text); line-height: 1.6; }
+.ai-signal-line {
+  font-family: var(--font); font-size: 11px;
+  color: var(--text-muted); line-height: 1.5;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  font-style: italic;
+}
 </style>
 </head>
 <body>
@@ -465,6 +541,48 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
           </div>
           <div class="xp-progress-bar">
             <div class="xp-progress-fill" id="xpProgressFill" style="width:0%"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AI Signal Panel -->
+      <div class="ai-panel" id="aiPanel">
+        <div class="ai-panel-header">
+          <span class="ai-icon">◈</span>
+          <span class="ai-title">AI SIGNAL</span>
+          <span class="ai-coin" id="aiCoinLabel">BTC</span>
+          <button class="ai-refresh-btn" id="aiRefreshBtn" onclick="loadAiSignal()" title="Refresh">↻</button>
+        </div>
+        <div class="ai-body" id="aiBody">
+          <div class="ai-loading" id="aiLoading">
+            <span class="ai-dot"></span><span class="ai-dot"></span><span class="ai-dot"></span>
+          </div>
+          <div class="ai-content" id="aiContent" style="display:none;">
+            <!-- Probability -->
+            <div class="ai-row">
+              <div class="ai-prob-block">
+                <div class="ai-prob-bar-wrap">
+                  <div class="ai-prob-up" id="aiProbUp" style="width:50%"></div>
+                  <div class="ai-prob-down" id="aiProbDown" style="width:50%"></div>
+                </div>
+                <div class="ai-prob-labels">
+                  <span class="ai-up-label">▲ UP <span id="aiPctUp">50</span>%</span>
+                  <span class="ai-down-label">▼ DOWN <span id="aiPctDown">50</span>%</span>
+                </div>
+              </div>
+            </div>
+            <!-- Sentiment -->
+            <div class="ai-row ai-sentiment-row">
+              <span class="ai-label">Sentiment</span>
+              <span class="ai-sentiment-badge" id="aiSentiment">—</span>
+            </div>
+            <!-- Key levels -->
+            <div class="ai-row ai-levels-row">
+              <span class="ai-label">Key Levels</span>
+              <div class="ai-levels" id="aiLevels">—</div>
+            </div>
+            <!-- Signal -->
+            <div class="ai-signal-line" id="aiSignalLine">—</div>
           </div>
         </div>
       </div>
@@ -714,6 +832,7 @@ async function switchNetwork(netKey) {
     await loadPlayerRound();
     await loadUserXp();
     await loadWalletBalance();
+    startAiRefresh();
     await loadWalletBalance();
   }
 }
@@ -786,6 +905,7 @@ const COINS = {
 // ── Coin selection ───────────────────────────────────
 function selectCoin(coin, el) {
   selectedCoin = coin;
+  loadAiSignal(coin);
   document.querySelectorAll('.coin-tab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
   const cfg = COINS[coin];
@@ -1791,7 +1911,103 @@ updateNativeLabels();
 })();
 
 // Expose to global scope for inline onclick handlers
+
+// ── AI SIGNAL ─────────────────────────────────────────────────
+let aiLastCoin = null;
+let aiLastPrice = 0;
+let aiLoading = false;
+
+async function loadAiSignal(coin, price) {
+  if (!coin) coin = selectedCoin;
+  if (!price) price = priceCache[coin]?.raw || 0;
+  if (aiLoading) return;
+  if (coin === aiLastCoin && Math.abs(price - aiLastPrice) / (aiLastPrice||1) < 0.003) return; // skip if <0.3% change
+
+  aiLoading = true;
+  aiLastCoin = coin;
+  aiLastPrice = price;
+
+  // Update coin label
+  const coinLabel = document.getElementById('aiCoinLabel');
+  if (coinLabel) coinLabel.innerText = coin;
+
+  // Show loading
+  document.getElementById('aiLoading').style.display = 'flex';
+  document.getElementById('aiContent').style.display = 'none';
+  const btn = document.getElementById('aiRefreshBtn');
+  if (btn) btn.style.animation = 'spin 1s linear infinite';
+
+  try {
+    const prompt = `You are a crypto trading signal AI for a prediction game.
+Current asset: ${coin}/USDT
+Current price: $${price.toLocaleString()}
+
+Analyze and respond ONLY with valid JSON, no markdown, no extra text:
+{
+  "upPct": <integer 0-100, probability price goes UP in next 1-5 min>,
+  "downPct": <integer, must equal 100 minus upPct>,
+  "sentiment": "<bullish|bearish|neutral>",
+  "support": <key support level as number>,
+  "resistance": <key resistance level as number>,
+  "signal": "<one short sentence signal, max 80 chars>"
+}`;
+
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 200,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+
+    const data = await resp.json();
+    const text = data.content?.map(c => c.text||'').join('') || '';
+    const clean = text.replace(/```json|```/g,'').trim();
+    const ai = JSON.parse(clean);
+
+    // Update UI
+    document.getElementById('aiProbUp').style.width   = ai.upPct + '%';
+    document.getElementById('aiProbDown').style.width = ai.downPct + '%';
+    document.getElementById('aiPctUp').innerText   = ai.upPct;
+    document.getElementById('aiPctDown').innerText = ai.downPct;
+
+    const sentEl = document.getElementById('aiSentiment');
+    sentEl.innerText = ai.sentiment.toUpperCase();
+    sentEl.className = 'ai-sentiment-badge ' + ai.sentiment.toLowerCase();
+
+    document.getElementById('aiLevels').innerHTML =
+      `<span style="color:#ff4466">R: $${Number(ai.resistance).toLocaleString()}</span>` +
+      `&nbsp;&nbsp;<span style="color:#00cc44">S: $${Number(ai.support).toLocaleString()}</span>`;
+
+    document.getElementById('aiSignalLine').innerText = '◈ ' + ai.signal;
+
+    document.getElementById('aiLoading').style.display  = 'none';
+    document.getElementById('aiContent').style.display  = 'block';
+
+  } catch(e) {
+    document.getElementById('aiLoading').style.display  = 'none';
+    document.getElementById('aiContent').style.display  = 'block';
+    document.getElementById('aiSignalLine').innerText = '⚠ Signal unavailable';
+    console.warn('AI signal error:', e.message);
+  }
+
+  aiLoading = false;
+  if (btn) btn.style.animation = '';
+}
+
+// Auto-refresh AI when coin changes or every 60s
+let aiRefreshInterval = null;
+function startAiRefresh() {
+  if (aiRefreshInterval) clearInterval(aiRefreshInterval);
+  loadAiSignal();
+  aiRefreshInterval = setInterval(() => loadAiSignal(), 60000);
+}
+
 window.connect = connect;
+window.loadAiSignal = loadAiSignal;
+window.startAiRefresh = startAiRefresh;
 window.switchNetwork = switchNetwork;
 window.settlePlayer = settlePlayer;
 window.disconnect = disconnect;
