@@ -31,7 +31,7 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
 .page{position:relative;z-index:1;display:flex;flex-direction:column;height:100vh;}
 
 /* Header */
-.header{display:flex;align-items:center;padding:8px 16px;border-bottom:1px solid var(--border);background:rgba(10,10,10,0.96);backdrop-filter:blur(12px);z-index:100;flex-shrink:0;gap:12px;}
+.header{display:flex;align-items:center;justify-content:space-between;padding:12px 24px;border-bottom:1px solid var(--border);background:rgba(10,10,10,0.96);backdrop-filter:blur(12px);z-index:100;flex-shrink:0;}
 .logo{display:flex;align-items:center;gap:10px;flex-shrink:0;}
 .logo-icon{width:26px;height:26px;background:var(--neon);clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%);animation:pulse-logo 3s ease-in-out infinite;}
 @keyframes pulse-logo{0%,100%{filter:brightness(1);}50%{filter:brightness(1.3) drop-shadow(0 0 8px #d5fd51);}}
@@ -334,95 +334,65 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
 .net-name { position: relative; }
 
 
-/* ── HEADER AI WIDGET ─────────────────────────────────────────── */
-.header-ai {
-  display: flex; /* always visible */
+/* ── AI SIGNAL BAR ────────────────────────────────────────────── */
+.ai-bar {
+  display: flex;
   align-items: center;
   gap: 0;
-  background: rgba(8,12,8,0.9);
-  border: 1px solid rgba(213,253,81,0.18);
-  border-radius: 10px;
+  height: 36px;
+  background: rgba(6,10,6,0.97);
+  border-bottom: 1px solid rgba(213,253,81,0.12);
+  padding: 0 16px;
   overflow: hidden;
-  flex: 1;
-  margin: 0 16px;
-  max-width: 720px;
-  height: 44px;
-  position: relative;
-}
-.header-ai::before {
-  content:'◈ AI';
-  position:absolute; left:8px; top:50%;
-  transform:translateY(-50%);
-  font-family:var(--font); font-size:9px;
-  letter-spacing:2px; color:var(--neon);
-  opacity:0.6; pointer-events:none;
-}
-.hai-coin {
-  font-family: var(--font); font-size: 11px;
-  color: var(--neon); letter-spacing: 1px;
-  padding: 0 10px 0 36px;
-  white-space: nowrap;
-}
-.hai-divider {
-  width: 1px; height: 24px;
-  background: rgba(255,255,255,0.08);
   flex-shrink: 0;
 }
-.hai-block {
-  display: flex; flex-direction: column;
-  justify-content: center;
-  padding: 0 12px;
-  gap: 2px;
-  height: 100%;
+.ai-bar-icon {
+  color: var(--neon); font-size: 11px;
+  letter-spacing: 1px; margin-right: 10px;
+  opacity: 0.7; flex-shrink: 0;
 }
-.hai-label {
+.ai-bar-item {
+  display: flex; align-items: center; gap: 5px;
+  padding: 0 14px;
+  white-space: nowrap;
+}
+.ai-bar-sep {
+  width: 1px; height: 18px;
+  background: rgba(255,255,255,0.07);
+  flex-shrink: 0;
+}
+.ai-bar-label {
   font-family: var(--font); font-size: 8px;
-  letter-spacing: 1.5px; color: rgba(255,255,255,0.3);
-  line-height: 1;
+  letter-spacing: 1.5px; color: rgba(255,255,255,0.28);
 }
-.hai-bar-wrap {
-  display: flex; width: 90px; height: 4px;
-  border-radius: 2px; overflow: hidden;
-  background: rgba(255,255,255,0.05);
-}
-.hai-bar-up   { background: linear-gradient(90deg,#00cc44,#d5fd51); transition: width 0.6s ease; }
-.hai-bar-down { background: linear-gradient(90deg,#ff4466,#ff2244); transition: width 0.6s ease; }
-.hai-pcts { display: flex; gap: 8px; }
-.hai-up   { font-family:var(--font); font-size:10px; color:#00cc44; }
-.hai-down { font-family:var(--font); font-size:10px; color:#ff4466; }
-.hai-sentiment {
-  font-family: var(--font); font-size: 10px;
-  letter-spacing: 1px;
-}
-.hai-sentiment.bullish { color: #00cc44; }
-.hai-sentiment.bearish { color: #ff4466; }
-.hai-sentiment.neutral { color: var(--text-muted); }
-.hai-levels {
-  font-family: var(--font); font-size: 10px;
-  color: var(--text); white-space: nowrap;
-  display: flex; gap: 6px;
-}
-.hai-lvl-r { color: #ff4466; }
-.hai-lvl-s { color: #00cc44; }
-.hai-rsi-val {
-  font-family: var(--font); font-size: 13px;
+.ai-bar-val {
+  font-family: var(--font); font-size: 11px;
   color: var(--text);
 }
-.hai-vol {
-  display: flex; gap: 6px;
-  font-family: var(--font); font-size: 10px;
+.ai-bar-s { color: #00cc44; }
+.ai-bar-r { color: #ff4466; }
+.ai-bar-prob {
+  display: flex; width: 52px; height: 4px;
+  border-radius: 2px; overflow: hidden;
+  background: rgba(255,255,255,0.06);
 }
-.hai-buy  { color: #00cc44; }
-.hai-sell { color: #ff4466; }
-.hai-signal-text {
+.ai-bar-up   { background: linear-gradient(90deg,#00cc44,#d5fd51); transition: width 0.5s; }
+.ai-bar-down { background: linear-gradient(90deg,#ff4466,#ff2244); transition: width 0.5s; }
+.ai-bar-up-pct   { font-family:var(--font); font-size:11px; color:#00cc44; }
+.ai-bar-down-pct { font-family:var(--font); font-size:11px; color:#ff4466; }
+.ai-bar-sentiment {
+  font-family: var(--font); font-size: 11px; letter-spacing: 1px;
+}
+.ai-bar-sentiment.bullish { color: #00cc44; }
+.ai-bar-sentiment.bearish { color: #ff4466; }
+.ai-bar-sentiment.neutral { color: var(--text-muted); }
+.ai-bar-signal {
   font-family: var(--font); font-size: 10px;
-  color: rgba(213,253,81,0.6);
-  padding: 0 12px;
-  white-space: nowrap;
-  overflow: hidden;
+  color: rgba(213,253,81,0.55);
+  padding-left: 14px;
+  white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 200px;
-  line-height: 1.3;
+  max-width: 300px;
 }
 
 /* ── AI SIGNAL PANEL ─────────────────────────────────────────── */
@@ -515,48 +485,6 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
       <div class="logo-icon"></div>
       <div class="logo-text">BLOCK<span>ORACLE</span></div>
     </div>
-    <!-- AI Signal Widget in header -->
-    <div class="header-ai" id="headerAi">
-      <div class="hai-coin" id="haiCoin">BTC</div>
-      <div class="hai-divider"></div>
-      <div class="hai-block">
-        <div class="hai-label">SIGNAL</div>
-        <div class="hai-bar-wrap">
-          <div class="hai-bar-up" id="haiBarUp" style="width:50%"></div>
-          <div class="hai-bar-down" id="haiBarDown" style="width:50%"></div>
-        </div>
-        <div class="hai-pcts">
-          <span class="hai-up">▲ <span id="haiPctUp">—</span>%</span>
-          <span class="hai-down">▼ <span id="haiPctDown">—</span>%</span>
-        </div>
-      </div>
-      <div class="hai-divider"></div>
-      <div class="hai-block">
-        <div class="hai-label">SENTIMENT</div>
-        <div class="hai-sentiment" id="haiSentiment">—</div>
-      </div>
-      <div class="hai-divider"></div>
-      <div class="hai-block">
-        <div class="hai-label">KEY LEVELS</div>
-        <div class="hai-levels" id="haiLevels">—</div>
-      </div>
-      <div class="hai-divider"></div>
-      <div class="hai-block">
-        <div class="hai-label">RSI</div>
-        <div class="hai-rsi-val" id="haiRsi">—</div>
-      </div>
-      <div class="hai-divider"></div>
-      <div class="hai-block">
-        <div class="hai-label">BUY/SELL VOL</div>
-        <div class="hai-vol" id="haiVol">
-          <span class="hai-buy">B —%</span>
-          <span class="hai-sell">S —%</span>
-        </div>
-      </div>
-      <div class="hai-divider"></div>
-      <div class="hai-signal-text" id="haiSignalText">Collecting data…</div>
-    </div>
-
     <div class="header-right">
       <div class="xp-badge-header" id="xpBadgeHeader">
         <span class="xp-icon">✦</span>
@@ -603,6 +531,54 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
       <span class="coin-price-small" id="price-XRP">—</span>
     </div>
   </div>
+<!-- AI Signal Bar -->
+<div class="ai-bar" id="aiBar">
+  <span class="ai-bar-icon">◈</span>
+  <div class="ai-bar-item">
+    <span class="ai-bar-label">SIGNAL</span>
+    <div class="ai-bar-prob">
+      <div class="ai-bar-up" id="haiBarUp" style="width:50%"></div>
+      <div class="ai-bar-down" id="haiBarDown" style="width:50%"></div>
+    </div>
+    <span class="ai-bar-up-pct" id="haiPctUp">—</span>%
+    <span style="color:var(--border)">·</span>
+    <span class="ai-bar-down-pct" id="haiPctDown">—</span>%
+  </div>
+  <div class="ai-bar-sep"></div>
+  <div class="ai-bar-item">
+    <span class="ai-bar-label">SENTIMENT</span>
+    <span class="ai-bar-sentiment" id="haiSentiment">—</span>
+  </div>
+  <div class="ai-bar-sep"></div>
+  <div class="ai-bar-item">
+    <span class="ai-bar-label">SUPPORT</span>
+    <span class="ai-bar-val ai-bar-s" id="haiSupport">—</span>
+  </div>
+  <div class="ai-bar-sep"></div>
+  <div class="ai-bar-item">
+    <span class="ai-bar-label">RESISTANCE</span>
+    <span class="ai-bar-val ai-bar-r" id="haiResistance">—</span>
+  </div>
+  <div class="ai-bar-sep"></div>
+  <div class="ai-bar-item">
+    <span class="ai-bar-label">RSI</span>
+    <span class="ai-bar-val" id="haiRsi">—</span>
+  </div>
+  <div class="ai-bar-sep"></div>
+  <div class="ai-bar-item">
+    <span class="ai-bar-label">BUY VOL</span>
+    <span class="ai-bar-val ai-bar-s" id="haiBuyVol">—</span>
+  </div>
+  <div class="ai-bar-sep"></div>
+  <div class="ai-bar-item">
+    <span class="ai-bar-label">SELL VOL</span>
+    <span class="ai-bar-val ai-bar-r" id="haiSellVol">—</span>
+  </div>
+  <div class="ai-bar-sep"></div>
+  <div class="ai-bar-signal" id="haiSignalText">Collecting data…</div>
+</div>
+
+
 
   <div class="body-layout">
     <div class="chart-col">
@@ -2032,7 +2008,7 @@ function trackPriceHistory(coin, price) {
 
 function calcLocalSignal(coin, currentPrice) {
   const hist = priceHistory[coin] || [];
-  if (hist.length < 3) return null;
+  if (hist.length < 2) return null;
 
   const prices = hist.map(h => h.price);
   const n = prices.length;
@@ -2132,37 +2108,29 @@ function updateAiPanel(coin, price) {
   if (document.getElementById('aiSignalLine'))
     document.getElementById('aiSignalLine').innerText = sig.signal;
 
-  // ── Update header AI widget ──────────────────────────────────
-  const hAi = document.getElementById('headerAi');
-  if (hAi) {
-    document.getElementById('haiCoin').innerText = coin;
-
-    document.getElementById('haiBarUp').style.width   = sig.upPct + '%';
-    document.getElementById('haiBarDown').style.width = sig.downPct + '%';
-    document.getElementById('haiPctUp').innerText   = sig.upPct;
-    document.getElementById('haiPctDown').innerText = sig.downPct;
-
-    const hSent = document.getElementById('haiSentiment');
-    hSent.innerText   = sig.sentiment.toUpperCase();
-    hSent.className   = 'hai-sentiment ' + sig.sentiment;
-
-    document.getElementById('haiLevels').innerHTML =
-      '<span class="hai-lvl-r">R $' + sig.resistance.toLocaleString(undefined,{maximumFractionDigits:2}) + '</span>' +
-      '<span style="color:var(--border)">·</span>' +
-      '<span class="hai-lvl-s">S $' + sig.support.toLocaleString(undefined,{maximumFractionDigits:2}) + '</span>';
-
-    const rsiNum = parseFloat(sig.rsi);
-    const rsiColor = rsiNum > 65 ? '#ff4466' : rsiNum < 35 ? '#00cc44' : 'var(--text)';
-    document.getElementById('haiRsi').innerHTML = '<span style="color:' + rsiColor + '">' + sig.rsi + '</span>';
-
-    // Buy/sell volume heuristic from price momentum
-    const buyVol  = sig.upPct;
-    const sellVol = sig.downPct;
-    document.getElementById('haiVol').innerHTML =
-      `<span class="hai-buy">B \${buyVol}%</span><span class="hai-sell">S \${sellVol}%</span>`;
-
-    document.getElementById('haiSignalText').innerText = sig.signal;
-  }
+  // ── Update AI bar ────────────────────────────────────────────
+  const upEl   = document.getElementById('haiBarUp');
+  const downEl = document.getElementById('haiBarDown');
+  if (upEl)   upEl.style.width   = sig.upPct + '%';
+  if (downEl) downEl.style.width = sig.downPct + '%';
+  const pctUp = document.getElementById('haiPctUp');
+  const pctDn = document.getElementById('haiPctDown');
+  if (pctUp) pctUp.innerText = sig.upPct;
+  if (pctDn) pctDn.innerText = sig.downPct;
+  const sentEl2 = document.getElementById('haiSentiment');
+  if (sentEl2) { sentEl2.innerText = sig.sentiment.toUpperCase(); sentEl2.className = 'ai-bar-sentiment ' + sig.sentiment; }
+  const supEl = document.getElementById('haiSupport');
+  const resEl = document.getElementById('haiResistance');
+  if (supEl) supEl.innerText = '$' + sig.support.toLocaleString(undefined,{maximumFractionDigits:2});
+  if (resEl) resEl.innerText = '$' + sig.resistance.toLocaleString(undefined,{maximumFractionDigits:2});
+  const rsiEl2 = document.getElementById('haiRsi');
+  if (rsiEl2) { const rn = parseFloat(sig.rsi); rsiEl2.style.color = rn>65?'#ff4466':rn<35?'#00cc44':'var(--text)'; rsiEl2.innerText = sig.rsi; }
+  const buyEl  = document.getElementById('haiBuyVol');
+  const sellEl = document.getElementById('haiSellVol');
+  if (buyEl)  buyEl.innerText  = sig.upPct + '%';
+  if (sellEl) sellEl.innerText = sig.downPct + '%';
+  const sigTxt = document.getElementById('haiSignalText');
+  if (sigTxt) sigTxt.innerText = sig.signal;
 }
 
 async function loadAiSignal(coin, price) {
@@ -2251,7 +2219,7 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
 .page{position:relative;z-index:1;display:flex;flex-direction:column;height:100vh;}
 
 /* Header */
-.header{display:flex;align-items:center;padding:8px 16px;border-bottom:1px solid var(--border);background:rgba(10,10,10,0.96);backdrop-filter:blur(12px);z-index:100;flex-shrink:0;gap:12px;}
+.header{display:flex;align-items:center;justify-content:space-between;padding:12px 24px;border-bottom:1px solid var(--border);background:rgba(10,10,10,0.96);backdrop-filter:blur(12px);z-index:100;flex-shrink:0;}
 .logo{display:flex;align-items:center;gap:10px;flex-shrink:0;}
 .logo-icon{width:26px;height:26px;background:var(--neon);clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%);animation:pulse-logo 3s ease-in-out infinite;}
 @keyframes pulse-logo{0%,100%{filter:brightness(1);}50%{filter:brightness(1.3) drop-shadow(0 0 8px #d5fd51);}}
@@ -4252,7 +4220,7 @@ function trackPriceHistory(coin, price) {
 
 function calcLocalSignal(coin, currentPrice) {
   const hist = priceHistory[coin] || [];
-  if (hist.length < 3) return null;
+  if (hist.length < 2) return null;
 
   const prices = hist.map(h => h.price);
   const n = prices.length;
