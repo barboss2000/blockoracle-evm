@@ -400,13 +400,17 @@ body{background:#0d1a0a;color:var(--text);font-family:'DM Mono',monospace;min-he
 .ai-sentiment-badge.bearish { background: rgba(255,68,102,0.15); color: #ff4466; border: 1px solid rgba(255,68,102,0.3); }
 .ai-sentiment-badge.neutral { background: rgba(255,255,255,0.05); color: var(--text-muted); border: 1px solid var(--border); }
 .ai-levels-row { display: flex; align-items: flex-start; gap: 10px; }
-.ai-levels { font-family: var(--font); font-size: 11px; color: var(--text); line-height: 1.6; }
+.ai-levels { font-family: var(--font); font-size: 11px; color: var(--text); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.ai-level-r { color: #ff4466; }
+.ai-level-s { color: #00cc44; }
+.ai-level-divider { color: var(--border); }
+.ai-rsi { color: var(--text-muted); margin-left: 4px; font-size: 10px; }
 .ai-signal-line {
   font-family: var(--font); font-size: 11px;
-  color: var(--text-muted); line-height: 1.5;
+  color: rgba(213,253,81,0.7); line-height: 1.5;
   padding-top: 8px;
   border-top: 1px solid rgba(255,255,255,0.06);
-  font-style: italic;
+  letter-spacing: 0.03em;
 }
 </style>
 </head>
@@ -1446,6 +1450,8 @@ function startPriceWebSocket() {
     const changeStr = (change >= 0 ? '+' : '') + change.toFixed(2) + '%';
     const dir = change >= 0 ? 'pos' : 'neg';
     priceCache[coinKey] = { price:'$'+fmt, change:changeStr, dir, raw:price };
+    trackPriceHistory(coinKey, price);
+    if (coinKey === selectedCoin) updateAiPanel(coinKey, price);
     const el = document.getElementById('price-'+coinKey);
     if (el) el.innerText = '$'+fmt;
     if (coinKey === selectedCoin) {
@@ -1914,95 +1920,137 @@ updateNativeLabels();
 
 // ── AI SIGNAL ─────────────────────────────────────────────────
 let aiLastCoin = null;
-let aiLastPrice = 0;
+let aiRefreshInterval = null;
 let aiLoading = false;
+
+// Price history buffer per coin (last 20 prices)
+const priceHistory = {};
+
+function trackPriceHistory(coin, price) {
+  if (!priceHistory[coin]) priceHistory[coin] = [];
+  priceHistory[coin].push({ price, time: Date.now() });
+  if (priceHistory[coin].length > 30) priceHistory[coin].shift();
+}
+
+function calcLocalSignal(coin, currentPrice) {
+  const hist = priceHistory[coin] || [];
+  if (hist.length < 3) return null;
+
+  const prices = hist.map(h => h.price);
+  const n = prices.length;
+
+  // Simple moving averages
+  const sma5  = prices.slice(-5).reduce((a,b)=>a+b,0) / Math.min(5, n);
+  const sma15 = prices.slice(-15).reduce((a,b)=>a+b,0) / Math.min(15, n);
+
+  // Momentum: % change last 5 vs 10 candles ago
+  const oldest = prices[Math.max(0, n-10)];
+  const momentum = ((currentPrice - oldest) / oldest) * 100;
+
+  // Volatility
+  const avg = prices.reduce((a,b)=>a+b,0)/n;
+  const variance = prices.reduce((a,b)=>a+(b-avg)**2,0)/n;
+  const stddev = Math.sqrt(variance);
+  const volatility = (stddev / avg) * 100;
+
+  // Trend signal
+  const trendUp = sma5 > sma15;
+  const strongTrend = Math.abs(momentum) > 0.1;
+
+  // Support / resistance: recent min/max
+  const support    = Math.min(...prices.slice(-20)) * 0.9995;
+  const resistance = Math.max(...prices.slice(-20)) * 1.0005;
+
+  // Probability (weighted heuristic)
+  let upPct = 50;
+  if (trendUp) upPct += 12;
+  else upPct -= 12;
+  if (momentum > 0.05) upPct += 8;
+  else if (momentum < -0.05) upPct -= 8;
+  if (currentPrice < avg) upPct += 5; // mean reversion
+  else upPct -= 5;
+
+  // RSI-like (simplified)
+  let gains = 0, losses = 0;
+  for (let i = 1; i < prices.length; i++) {
+    const diff = prices[i] - prices[i-1];
+    if (diff > 0) gains += diff; else losses -= diff;
+  }
+  const rsi = losses === 0 ? 100 : 100 - (100 / (1 + gains/losses));
+  if (rsi > 65) upPct -= 8;  // overbought
+  if (rsi < 35) upPct += 8;  // oversold
+
+  upPct = Math.max(20, Math.min(80, Math.round(upPct)));
+  const downPct = 100 - upPct;
+
+  // Sentiment
+  let sentiment = 'neutral';
+  if (upPct >= 58) sentiment = 'bullish';
+  else if (upPct <= 42) sentiment = 'bearish';
+
+  // Signal text
+  const rsiStr = rsi.toFixed(0);
+  let signal = '';
+  if (rsi > 65) signal = `RSI ${rsiStr} — overbought, watch for reversal`;
+  else if (rsi < 35) signal = `RSI ${rsiStr} — oversold, potential bounce`;
+  else if (trendUp && strongTrend) signal = `Uptrend active · momentum ${momentum.toFixed(2)}%`;
+  else if (!trendUp && strongTrend) signal = `Downtrend active · momentum ${momentum.toFixed(2)}%`;
+  else signal = `Consolidation · vol ${volatility.toFixed(3)}% · RSI ${rsiStr}`;
+
+  return { upPct, downPct, sentiment, support, resistance, signal, rsi: rsi.toFixed(0) };
+}
+
+function updateAiPanel(coin, price) {
+  if (aiLoading) return;
+  const sig = calcLocalSignal(coin, price);
+  if (!sig) return;
+
+  const coinLabel = document.getElementById('aiCoinLabel');
+  if (coinLabel) coinLabel.innerText = coin;
+
+  // Hide loading, show content instantly
+  document.getElementById('aiLoading').style.display  = 'none';
+  document.getElementById('aiContent').style.display  = 'block';
+
+  // Probability bar
+  document.getElementById('aiProbUp').style.width   = sig.upPct + '%';
+  document.getElementById('aiProbDown').style.width = sig.downPct + '%';
+  document.getElementById('aiPctUp').innerText   = sig.upPct;
+  document.getElementById('aiPctDown').innerText = sig.downPct;
+
+  // Sentiment badge
+  const sentEl = document.getElementById('aiSentiment');
+  sentEl.innerText   = sig.sentiment.toUpperCase();
+  sentEl.className   = 'ai-sentiment-badge ' + sig.sentiment;
+
+  // Key levels
+  document.getElementById('aiLevels').innerHTML =
+    `<span class="ai-level-r">R $${sig.resistance.toLocaleString(undefined,{maximumFractionDigits:2})}</span>` +
+    `<span class="ai-level-divider">·</span>` +
+    `<span class="ai-level-s">S $${sig.support.toLocaleString(undefined,{maximumFractionDigits:2})}</span>` +
+    `<span class="ai-rsi">RSI ${sig.rsi}</span>`;
+
+  // Signal line
+  document.getElementById('aiSignalLine').innerText = sig.signal;
+}
 
 async function loadAiSignal(coin, price) {
   if (!coin) coin = selectedCoin;
   if (!price) price = priceCache[coin]?.raw || 0;
-  if (aiLoading) return;
-  if (coin === aiLastCoin && Math.abs(price - aiLastPrice) / (aiLastPrice||1) < 0.003) return; // skip if <0.3% change
-
-  aiLoading = true;
-  aiLastCoin = coin;
-  aiLastPrice = price;
-
-  // Update coin label
-  const coinLabel = document.getElementById('aiCoinLabel');
-  if (coinLabel) coinLabel.innerText = coin;
-
-  // Show loading
-  document.getElementById('aiLoading').style.display = 'flex';
-  document.getElementById('aiContent').style.display = 'none';
-  const btn = document.getElementById('aiRefreshBtn');
-  if (btn) btn.style.animation = 'spin 1s linear infinite';
-
-  try {
-    const prompt = `You are a crypto trading signal AI for a prediction game.
-Current asset: ${coin}/USDT
-Current price: $${price.toLocaleString()}
-
-Analyze and respond ONLY with valid JSON, no markdown, no extra text:
-{
-  "upPct": <integer 0-100, probability price goes UP in next 1-5 min>,
-  "downPct": <integer, must equal 100 minus upPct>,
-  "sentiment": "<bullish|bearish|neutral>",
-  "support": <key support level as number>,
-  "resistance": <key resistance level as number>,
-  "signal": "<one short sentence signal, max 80 chars>"
-}`;
-
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 200,
-        messages: [{ role: 'user', content: prompt }]
-      })
-    });
-
-    const data = await resp.json();
-    const text = data.content?.map(c => c.text||'').join('') || '';
-    const clean = text.replace(/```json|```/g,'').trim();
-    const ai = JSON.parse(clean);
-
-    // Update UI
-    document.getElementById('aiProbUp').style.width   = ai.upPct + '%';
-    document.getElementById('aiProbDown').style.width = ai.downPct + '%';
-    document.getElementById('aiPctUp').innerText   = ai.upPct;
-    document.getElementById('aiPctDown').innerText = ai.downPct;
-
-    const sentEl = document.getElementById('aiSentiment');
-    sentEl.innerText = ai.sentiment.toUpperCase();
-    sentEl.className = 'ai-sentiment-badge ' + ai.sentiment.toLowerCase();
-
-    document.getElementById('aiLevels').innerHTML =
-      `<span style="color:#ff4466">R: $${Number(ai.resistance).toLocaleString()}</span>` +
-      `&nbsp;&nbsp;<span style="color:#00cc44">S: $${Number(ai.support).toLocaleString()}</span>`;
-
-    document.getElementById('aiSignalLine').innerText = '◈ ' + ai.signal;
-
-    document.getElementById('aiLoading').style.display  = 'none';
-    document.getElementById('aiContent').style.display  = 'block';
-
-  } catch(e) {
-    document.getElementById('aiLoading').style.display  = 'none';
-    document.getElementById('aiContent').style.display  = 'block';
-    document.getElementById('aiSignalLine').innerText = '⚠ Signal unavailable';
-    console.warn('AI signal error:', e.message);
-  }
-
-  aiLoading = false;
-  if (btn) btn.style.animation = '';
+  if (!price) return;
+  updateAiPanel(coin, price);
 }
 
-// Auto-refresh AI when coin changes or every 60s
-let aiRefreshInterval = null;
 function startAiRefresh() {
   if (aiRefreshInterval) clearInterval(aiRefreshInterval);
   loadAiSignal();
-  aiRefreshInterval = setInterval(() => loadAiSignal(), 60000);
+  aiRefreshInterval = setInterval(() => {
+    const p = priceCache[selectedCoin]?.raw || 0;
+    if (p) {
+      trackPriceHistory(selectedCoin, p);
+      updateAiPanel(selectedCoin, p);
+    }
+  }, 5000); // update every 5s from price cache
 }
 
 window.connect = connect;
